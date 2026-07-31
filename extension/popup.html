@@ -6,20 +6,31 @@
     body { font-family: Arial, sans-serif; width: 320px; padding: 16px; color: #17202a; }
     h3 { margin: 0 0 8px; color: #075e54; }
     p { font-size: 13px; line-height: 1.4; }
-    input { width: 100%; margin: 8px 0 12px; }
+    input[type="file"] { width: 100%; margin: 8px 0 12px; }
     button { width: 100%; padding: 10px; border: 0; border-radius: 6px; background: #128c7e; color: white; cursor: pointer; }
     button:disabled { opacity: .5; }
+    .monitor { display: flex; align-items: center; gap: 10px; padding: 12px; margin: 12px 0; background: #eef8f6; border-radius: 7px; }
+    .monitor input { width: 18px; height: 18px; }
+    .monitor label { font-size: 13px; font-weight: bold; }
+    hr { border: 0; border-top: 1px solid #dde3e6; margin: 16px 0; }
     #status { margin-top: 12px; font-size: 12px; white-space: pre-wrap; }
     a { color: #075e54; }
   </style>
 </head>
 <body>
   <h3>Processar atestado</h3>
-  <p>Abra a conversa no WhatsApp Web, baixe o atestado recebido e selecione o arquivo abaixo.</p>
+  <p>Monitora automaticamente novas imagens e PDFs na conversa atualmente aberta.</p>
+  <div class="monitor">
+    <input id="monitor" type="checkbox">
+    <label for="monitor">Monitoramento automatico</label>
+  </div>
+  <p id="monitorHint">Ao ativar, os anexos que ja estao na tela serao ignorados. Apenas novos recebimentos serao processados.</p>
+  <button id="processLatest">Processar ultimo anexo da conversa</button>
+  <hr>
+  <p><strong>Envio manual:</strong> baixe o atestado e selecione abaixo.</p>
   <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp">
-  <button id="send">Enviar para extracao</button>
+  <button id="send">Enviar arquivo selecionado</button>
   <div id="status"></div>
   <script src="popup.js"></script>
 </body>
 </html>
-

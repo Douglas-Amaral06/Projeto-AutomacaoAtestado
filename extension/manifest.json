@@ -1,13 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Receber Atestado",
-  "version": "0.1.0",
-  "description": "Envia manualmente um atestado ao servidor local para extracao e conferencia.",
-  "permissions": ["activeTab"],
+  "version": "0.2.2",
+  "description": "Monitora a conversa aberta e envia atestados ao servidor local para conferencia.",
+  "permissions": ["activeTab", "storage"],
   "host_permissions": ["http://127.0.0.1:8000/*"],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Processar atestado"
+  },
+  "background": {
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
@@ -17,4 +20,3 @@
     }
   ]
 }
-

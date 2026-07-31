@@ -57,6 +57,26 @@ Abra `http://127.0.0.1:8000`.
 4. Selecione a pasta `extension` deste projeto.
 5. Abra a conversa no WhatsApp Web, clique na extensao e escolha o arquivo.
 
+## Teste do monitoramento automatico
+
+1. Inicie o servidor com `.\iniciar.ps1`.
+2. Em `chrome://extensions`, clique em **Atualizar** no cartao da extensao.
+3. Atualize a pagina do WhatsApp Web.
+4. Abra a conversa que sera monitorada.
+5. Abra a extensao e ative **Monitoramento automatico**.
+6. Aguarde aparecer `Monitorando: nome da conversa`.
+7. Envie de outro telefone uma nova imagem de atestado para essa conversa.
+8. Aguarde o selo `OK` no icone da extensao e confira o registro no painel.
+
+Se o anexo chegou antes de o monitoramento ser ativado, clique em **Processar
+ultimo anexo da conversa**. O botao **Enviar arquivo selecionado** continua
+sendo exclusivo para arquivos baixados manualmente.
+
+O monitoramento atual cobre novas imagens e PDFs expostos pelo WhatsApp Web na
+conversa aberta. Anexos antigos sao ignorados. Ao trocar de conversa, o
+monitoramento pausa e precisa ser ativado novamente. O envio manual permanece
+disponivel como contingencia.
+
 ## Custos
 
 SQLite e a geracao de XLSX sao locais e gratuitas. O projeto nao depende da
