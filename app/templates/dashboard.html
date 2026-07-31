@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conferencia de atestados</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f3f5f7; color: #17202a; }
+    header { background: #075e54; color: white; padding: 20px 32px; display: flex; justify-content: space-between; align-items: center; }
+    header a { color: #075e54; background: white; padding: 10px 14px; border-radius: 6px; text-decoration: none; }
+    main { padding: 24px 32px; }
+    .card { background: white; border-radius: 10px; padding: 18px; margin-bottom: 16px; box-shadow: 0 2px 8px #0001; }
+    .meta { color: #667; font-size: 13px; }
+    form { display: grid; grid-template-columns: 2fr 1.3fr 1fr 1fr 1.2fr; gap: 12px; margin-top: 14px; }
+    label { font-size: 12px; color: #556; }
+    input, textarea { box-sizing: border-box; width: 100%; padding: 8px; margin-top: 4px; border: 1px solid #ccd; border-radius: 5px; }
+    textarea { min-height: 60px; }
+    .wide { grid-column: 1 / -1; }
+    button { background: #128c7e; color: white; border: 0; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
+    .pendente { color: #a35b00; } .confirmado { color: #137333; }
+    @media (max-width: 900px) { form { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+  <header><div><strong>Atestados</strong><br><small>Conferencia humana obrigatoria</small></div><a href="/exportar.xlsx">Exportar XLSX</a></header>
+  <main>
+    {% if not atestados %}<div class="card">Nenhum atestado recebido.</div>{% endif %}
+    {% for item in atestados %}
+    <section class="card">
+      <div><strong>#{{ item.id }} - {{ item.arquivo_original }}</strong> · <span class="{{ item.status }}">{{ item.status }}</span></div>
+      <div class="meta">Confianca da extracao: {{ item.confianca or '-' }} · <a href="/atestados/{{ item.id }}/arquivo">Abrir documento</a></div>
+      <form method="post" action="/atestados/{{ item.id }}/revisar">
+        <label>Nome<input name="nome" value="{{ item.nome or '' }}"></label>
+        <label>CPF<input name="cpf" value="{{ item.cpf or '' }}"></label>
+        <label>CID<input name="cid" value="{{ item.cid or '' }}"></label>
+        <label>Dias<input type="number" min="0" name="dias_afastamento" value="{{ item.dias_afastamento or '' }}"></label>
+        <label>Data<input type="date" name="data_atestado" value="{{ item.data_atestado or '' }}"></label>
+        <label class="wide">Observacoes<textarea name="observacoes">{{ item.observacoes or '' }}</textarea></label>
+        <div class="wide"><button type="submit">Confirmar dados</button></div>
+      </form>
+    </section>
+    {% endfor %}
+  </main>
+</body>
+</html>
+

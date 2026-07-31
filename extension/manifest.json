@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Receber Atestado",
+  "version": "0.1.0",
+  "description": "Envia manualmente um atestado ao servidor local para extracao e conferencia.",
+  "permissions": ["activeTab"],
+  "host_permissions": ["http://127.0.0.1:8000/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Processar atestado"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+
