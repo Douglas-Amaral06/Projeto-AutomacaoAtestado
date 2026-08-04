@@ -1,8 +1,15 @@
 .env
 .venv/
 .uv-cache/
+.pytest-tmp/
+.pytest_cache/
 __pycache__/
 *.pyc
 data/*.db
+data/*.xlsx
 data/uploads/*
 !data/uploads/.gitkeep
+backups/*.zip
+.restore-temp/
+data/onboarding/*
+.audit-*/

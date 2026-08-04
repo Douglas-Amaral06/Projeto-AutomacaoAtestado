@@ -7,8 +7,10 @@
     h3 { margin: 0 0 8px; color: #075e54; }
     p { font-size: 13px; line-height: 1.4; }
     input[type="file"] { width: 100%; margin: 8px 0 12px; }
+    input[type="text"] { box-sizing: border-box; width: 100%; margin: 8px 0; padding: 10px; border: 1px solid #b8c4c8; border-radius: 6px; font-size: 20px; letter-spacing: 5px; text-align: center; }
     button { width: 100%; padding: 10px; border: 0; border-radius: 6px; background: #128c7e; color: white; cursor: pointer; }
     button:disabled { opacity: .5; }
+    .danger { background: #b3261e; margin-top: 8px; }
     .monitor { display: flex; align-items: center; gap: 10px; padding: 12px; margin: 12px 0; background: #eef8f6; border-radius: 7px; }
     .monitor input { width: 18px; height: 18px; }
     .monitor label { font-size: 13px; font-weight: bold; }
@@ -18,18 +20,28 @@
   </style>
 </head>
 <body>
-  <h3>Processar atestado</h3>
-  <p>Monitora automaticamente novas imagens e PDFs na conversa atualmente aberta.</p>
-  <div class="monitor">
-    <input id="monitor" type="checkbox">
-    <label for="monitor">Monitoramento automatico</label>
-  </div>
-  <p id="monitorHint">Ao ativar, os anexos que ja estao na tela serao ignorados. Apenas novos recebimentos serao processados.</p>
-  <button id="processLatest">Processar ultimo anexo da conversa</button>
-  <hr>
-  <p><strong>Envio manual:</strong> baixe o atestado e selecione abaixo.</p>
-  <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp">
-  <button id="send">Enviar arquivo selecionado</button>
+  <section id="setupArea">
+    <h3>Conectar extensão</h3>
+    <p><strong>Conexão com o sistema:</strong> <span id="connectionState">Verificando...</span></p>
+    <p>Entre no painel com login, senha e 2FA. Depois abra <a href="http://127.0.0.1:8000/extensao" target="_blank">Conectar extensão</a> e gere o código temporário.</p>
+    <input id="pairingCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000">
+    <button id="pairExtension">Conectar extensão</button>
+  </section>
+  <section id="operationalArea" hidden>
+    <h3>Processar atestado</h3>
+    <p>Monitora automaticamente novas imagens e PDFs na conversa atualmente aberta.</p>
+    <div class="monitor"><input id="monitor" type="checkbox"><label for="monitor">Monitoramento automático</label></div>
+    <p>O monitoramento continua executando depois que esta janela for fechada. Mantenha a aba do WhatsApp Web aberta.</p>
+    <button id="stopTask" class="danger">Parar tarefa</button>
+    <p><a href="http://127.0.0.1:8000/logs" target="_blank">Abrir registro de ações</a></p>
+    <div class="monitor"><input id="monitorAll" type="checkbox"><label for="monitorAll">Monitorar conversas não lidas</label></div>
+    <p id="monitorHint">Ao ativar, os anexos que já estão na tela serão ignorados. Apenas novos recebimentos serão processados.</p>
+    <button id="processLatest">Processar último anexo da conversa</button>
+    <hr>
+    <p><strong>Envio manual:</strong> baixe o atestado e selecione abaixo.</p>
+    <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp">
+    <button id="send">Enviar arquivo selecionado</button>
+  </section>
   <div id="status"></div>
   <script src="popup.js"></script>
 </body>

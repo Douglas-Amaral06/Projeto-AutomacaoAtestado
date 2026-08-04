@@ -2,8 +2,38 @@ let observer = null;
 let monitoring = false;
 let armed = false;
 let conversationIdentity = null;
+let allChatsTimer = null;
+let allChatsBusy = false;
+let allChatsRunId = 0;
+let lastReportedStatus = "";
 const seenMessages = new Set();
 const pendingMessages = new Set();
+const unreadCounts = new WeakMap();
+
+function ensureStatusPanel() {
+  let panel = document.getElementById("atestados-monitor-status");
+  if (panel) return panel;
+  panel = document.createElement("div");
+  panel.id = "atestados-monitor-status";
+  Object.assign(panel.style, {
+    position: "fixed", right: "18px", bottom: "18px", zIndex: "999999",
+    maxWidth: "340px", padding: "11px 14px", borderRadius: "8px",
+    background: "#075e54", color: "white", fontFamily: "Arial, sans-serif",
+    fontSize: "13px", boxShadow: "0 3px 14px rgba(0,0,0,.28)", display: "none"
+  });
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function reportStatus(message, error = false, evento = "monitoramento", detalhes = null) {
+  const panel = ensureStatusPanel();
+  panel.textContent = message;
+  panel.style.background = error ? "#b3261e" : "#075e54";
+  panel.style.display = "block";
+  if (lastReportedStatus === `${error}|${message}`) return;
+  lastReportedStatus = `${error}|${message}`;
+  chrome.runtime.sendMessage({ type: error ? "MONITOR_ERROR" : "MONITOR_STATUS", message, evento, detalhes });
+}
 
 function messageKey(container, media) {
   const dataId = container.getAttribute("data-id");
@@ -16,7 +46,9 @@ function currentConversationIdentity() {
   const titles = [...document.querySelectorAll("#main header span[title], #main header [dir='auto']")]
     .map((item) => item.getAttribute("title") || item.textContent?.trim())
     .filter(Boolean);
-  return titles[0] || null;
+  if (titles[0]) return titles[0];
+  const headerText = document.querySelector("#main header")?.textContent?.replace(/\s+/g, " ").trim();
+  return headerText || null;
 }
 
 function isIncomingMessage(container) {
@@ -88,33 +120,54 @@ async function processContainer(container, force = false, selectedMedia = null) 
   pendingMessages.add(key);
 
   try {
-    const url = media.src || media.href;
+    const url = mediaUrl(media);
     const response = await fetch(url);
     if (!response.ok) throw new Error("Nao foi possivel ler o anexo no WhatsApp.");
     const blob = await response.blob();
     const supportedType = ["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(blob.type);
-    if (!supportedType) return;
+    if (!supportedType) {
+      pendingMessages.delete(key);
+      return;
+    }
     if (blob.size > 15 * 1024 * 1024) throw new Error("Anexo acima do limite de 15 MB.");
 
     const filename = media.getAttribute("download")
       || `atestado-${Date.now()}.${blob.type === "application/pdf" ? "pdf" : blob.type.split("/")[1] || "jpg"}`;
     const bytes = new Uint8Array(await blob.arrayBuffer());
 
-    chrome.runtime.sendMessage({
+    const result = await chrome.runtime.sendMessage({
       type: "UPLOAD_ATTACHMENT",
       payload: { base64: bytesToBase64(bytes), mimeType: blob.type, filename, key }
-    }, (result) => {
-      pendingMessages.delete(key);
-      if (chrome.runtime.lastError || !result?.ok) return;
-      seenMessages.add(key);
     });
+    if (!result?.ok) {
+      if (result?.quotaExceeded) {
+        stopMonitoring();
+        stopAllChatsMonitoring();
+        await chrome.storage.local.set({ monitoringEnabled: false, monitoringAllEnabled: false });
+        const waitText = result.retryAfter ? ` Aguarde aproximadamente ${result.retryAfter} segundos.` : "";
+        reportStatus(`Tarefa pausada: limite da API Gemini atingido.${waitText}`, true, "tarefa_pausada_quota", { aguarde_segundos: result.retryAfter });
+        return result;
+      }
+      reportStatus(result?.error || "Falha ao enviar o anexo.", true, "upload_falhou");
+      return result;
+    }
+    seenMessages.add(key);
+    if (result.status === "ignorado") reportStatus(`Tarefa finalizada: arquivo ignorado (${result.motivo || "nao identificado como atestado"}).`, false, "arquivo_ignorado", { tipo_documento: result.tipo_documento });
+    else if (result.status === "duplicado") reportStatus(`Tarefa finalizada: atestado #${result.id} ja havia sido processado.`, false, "arquivo_duplicado");
+    else reportStatus(`Tarefa finalizada: atestado #${result.id} enviado para conferencia.`, false, "atestado_salvo");
+    return result;
   } catch (error) {
+    reportStatus(error.message, true, "processamento_falhou", { chave: key });
+    return { ok: false, error: error.message };
+  } finally {
     pendingMessages.delete(key);
-    chrome.runtime.sendMessage({ type: "MONITOR_ERROR", message: error.message });
   }
 }
 
 function processLatestAttachment() {
+  if (!document.querySelector("#main") && !document.querySelector("main")) {
+    return { ok: false, error: "Abra uma conversa para processar o ultimo anexo. Para buscar sozinho, use Monitorar conversas nao lidas." };
+  }
   const containers = findMessageContainers();
   for (let index = containers.length - 1; index >= 0; index -= 1) {
     if (!findSupportedMedia(containers[index])) continue;
@@ -139,6 +192,17 @@ function processLatestAttachment() {
   };
 }
 
+async function processUnreadAttachments(unreadCount = 1) {
+  const items = [];
+  const containers = findMessageContainers();
+  containers.slice(-Math.min(Math.max(unreadCount, 1), 20)).forEach((container) => {
+    const media = findSupportedMedia(container);
+    if (media) items.push({ container, media });
+  });
+  for (const item of items) await processContainer(item.container, true, item.media);
+  return items.length;
+}
+
 function baselineVisibleMessages() {
   findMessageContainers().forEach((container) => {
     const media = findSupportedMedia(container);
@@ -148,12 +212,15 @@ function baselineVisibleMessages() {
 
 function startMonitoring() {
   if (monitoring) return;
+  if (allChatsTimer) clearInterval(allChatsTimer);
+  allChatsTimer = null;
+  allChatsBusy = false;
   monitoring = true;
   armed = false;
   conversationIdentity = currentConversationIdentity();
   if (!conversationIdentity) {
     monitoring = false;
-    chrome.runtime.sendMessage({ type: "MONITOR_ERROR", message: "Abra uma conversa antes de ativar o monitoramento." });
+    reportStatus("Abra uma conversa antes de ativar o monitoramento.", true);
     return;
   }
   baselineVisibleMessages();
@@ -162,7 +229,7 @@ function startMonitoring() {
     if (currentConversationIdentity() !== conversationIdentity) {
       stopMonitoring();
       chrome.storage.local.set({ monitoringEnabled: false });
-      chrome.runtime.sendMessage({ type: "MONITOR_ERROR", message: "A conversa mudou. Ative o monitoramento novamente na conversa desejada." });
+      reportStatus("A conversa mudou. Ative o monitoramento novamente na conversa desejada.", true);
       return;
     }
     for (const mutation of mutations) {
@@ -188,7 +255,7 @@ function startMonitoring() {
     if (!monitoring) return;
     baselineVisibleMessages();
     armed = true;
-    chrome.runtime.sendMessage({ type: "MONITOR_STATUS", message: `Monitorando: ${conversationIdentity}` });
+    reportStatus(`Monitorando: ${conversationIdentity}`);
   }, 1500);
 }
 
@@ -197,19 +264,192 @@ function stopMonitoring() {
   armed = false;
   observer?.disconnect();
   observer = null;
-  chrome.runtime.sendMessage({ type: "MONITOR_STATUS", message: "Monitoramento pausado." });
+  reportStatus("Monitoramento pausado.");
+}
+
+function unreadChatRows() {
+  const sidebar = document.querySelector("#pane-side");
+  if (!sidebar) return [];
+  const badges = sidebar.querySelectorAll(
+    "[aria-label*='não lida' i], [aria-label*='nao lida' i], [aria-label*='unread' i], [data-testid='icon-unread-count'], [data-icon='unread-count'], [data-icon='status-unread']"
+  );
+  const rows = new Set();
+  badges.forEach((badge) => {
+    let row = badge.closest("[role='listitem'], [role='row']");
+    if (!row) {
+      let candidate = badge.parentElement;
+      for (let level = 0; candidate && level < 8; level += 1, candidate = candidate.parentElement) {
+        if (candidate.querySelector("span[title]") && candidate.getBoundingClientRect().height >= 45) {
+          row = candidate;
+          break;
+        }
+      }
+    }
+    if (row) {
+      const description = `${badge.getAttribute("aria-label") || ""} ${badge.textContent || ""}`;
+      const parsedCount = Number(description.match(/\d+/)?.[0] || 1);
+      unreadCounts.set(row, Math.max(unreadCounts.get(row) || 1, parsedCount));
+      rows.add(row);
+    }
+  });
+  return [...rows];
+}
+
+function chatRowName(row) {
+  return row.querySelector("span[title]")?.getAttribute("title")
+    || row.querySelector("[dir='auto']")?.textContent?.trim()
+    || row.getAttribute("aria-label")
+    || "conversa sem nome";
+}
+
+function findChatRowByName(name) {
+  const sidebar = document.querySelector("#pane-side");
+  if (!sidebar) return null;
+  const candidates = sidebar.querySelectorAll("[role='listitem'], [role='row'], [data-testid='cell-frame-container']");
+  return [...candidates].find((candidate) => chatRowName(candidate) === name) || null;
+}
+
+async function clickChatRow(row, conversation) {
+  row.scrollIntoView({ block: "center", inline: "nearest" });
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const rectangle = row.getBoundingClientRect();
+  if (rectangle.width < 30 || rectangle.height < 30 || rectangle.bottom < 0 || rectangle.top > window.innerHeight) {
+    return { ok: false, error: "A conversa foi encontrada, mas esta fora da area clicavel." };
+  }
+  const x = Math.round(rectangle.left + Math.min(rectangle.width * 0.55, rectangle.width - 20));
+  const y = Math.round(rectangle.top + rectangle.height / 2);
+  return chrome.runtime.sendMessage({ type: "TRUSTED_CLICK", x, y, conversation });
+}
+
+function waitForConversation(conversation, previousIdentity, hadMain, timeout = 10000) {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      const identity = currentConversationIdentity();
+      const mainExists = Boolean(document.querySelector("#main"));
+      const currentRow = findChatRowByName(conversation);
+      const selected = currentRow?.getAttribute("aria-selected") === "true"
+        || Boolean(currentRow?.querySelector("[aria-selected='true']"));
+      if (mainExists && (selected || !hadMain || (identity && identity !== previousIdentity))) {
+        clearInterval(timer);
+        resolve(identity || conversation);
+      } else if (Date.now() - startedAt >= timeout) {
+        clearInterval(timer);
+        resolve(null);
+      }
+    }, 250);
+  });
+}
+
+function waitForMedia(timeout = 6000) {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      if (findAllConversationMedia().length) {
+        clearInterval(timer);
+        resolve(true);
+      } else if (Date.now() - startedAt >= timeout) {
+        clearInterval(timer);
+        resolve(false);
+      }
+    }, 300);
+  });
+}
+
+async function scanUnreadChats() {
+  if (allChatsBusy) return;
+  const queue = unreadChatRows().map((row) => ({
+    name: chatRowName(row),
+    unreadCount: unreadCounts.get(row) || 1,
+  }));
+  if (!queue.length) {
+    reportStatus("Verificacao finalizada: nenhuma conversa nao lida pendente.");
+    return;
+  }
+  allChatsBusy = true;
+  const runId = allChatsRunId;
+  try {
+    reportStatus(`Fila inicializada com ${queue.length} conversa(s) nao lida(s).`, false, "fila_iniciada", { quantidade: queue.length });
+    for (let index = 0; index < queue.length; index += 1) {
+      if (!allChatsTimer || runId !== allChatsRunId) break;
+      const rowName = queue[index].name;
+      const unreadCount = queue[index].unreadCount;
+      const row = findChatRowByName(rowName);
+      if (!row) {
+        reportStatus(`A conversa ${rowName} mudou de posicao e nao foi reencontrada. Seguindo.`, true, "conversa_nao_reencontrada", { conversa: rowName });
+        continue;
+      }
+      const previousIdentity = currentConversationIdentity();
+      const hadMain = Boolean(document.querySelector("#main"));
+      reportStatus(`Abrindo ${index + 1} de ${queue.length}: ${rowName}...`, false, "abrindo_conversa", { conversa: rowName, tentativa: index + 1 });
+      const clickResult = await clickChatRow(row, rowName);
+      if (!clickResult?.ok) {
+        reportStatus(`Falha no clique de ${rowName}: ${clickResult?.error || "erro desconhecido"}. Seguindo.`, true, "clique_conversa_falhou", { conversa: rowName });
+        continue;
+      }
+      const openedIdentity = await waitForConversation(rowName, previousIdentity, hadMain);
+      if (!allChatsTimer || runId !== allChatsRunId) break;
+      if (!openedIdentity) {
+        reportStatus(`Falha ao abrir ${rowName}. Seguindo para a proxima.`, true, "conversa_nao_aberta", { conversa: rowName });
+        continue;
+      }
+      reportStatus(`Conversa aberta: ${openedIdentity}. Procurando anexos...`, false, "conversa_aberta", { conversa: openedIdentity });
+      const hasMedia = await waitForMedia();
+      if (!allChatsTimer || runId !== allChatsRunId) break;
+      if (!hasMedia) {
+        reportStatus(`Nenhum anexo em ${openedIdentity}. Seguindo para a proxima.`, false, "sem_anexo", { conversa: openedIdentity });
+        continue;
+      }
+      const processed = await processUnreadAttachments(unreadCount);
+      reportStatus(`${processed} anexo(s) nao lido(s) verificado(s) em ${openedIdentity}.`, false, "anexos_verificados", { conversa: openedIdentity, quantidade: processed, mensagens_nao_lidas: unreadCount });
+    }
+    if (allChatsTimer && runId === allChatsRunId) reportStatus("Fila finalizada. Aguardando novas mensagens nao lidas.", false, "fila_finalizada");
+  } catch (error) {
+    reportStatus(`${error.message} A fila continuara na proxima verificacao.`, true, "fila_erro");
+  } finally {
+    allChatsBusy = false;
+  }
+}
+
+function startAllChatsMonitoring() {
+  stopMonitoring();
+  if (allChatsTimer) clearInterval(allChatsTimer);
+  allChatsRunId += 1;
+  allChatsTimer = setInterval(scanUnreadChats, 8000);
+  reportStatus("Tarefa inicializando: procurando conversas nao lidas...");
+  scanUnreadChats();
+}
+
+function stopAllChatsMonitoring() {
+  allChatsRunId += 1;
+  if (allChatsTimer) clearInterval(allChatsTimer);
+  allChatsTimer = null;
+  allChatsBusy = false;
+  reportStatus("Monitoramento geral pausado.");
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "PING") {
+    sendResponse({ ok: true });
+    return;
+  }
   if (message.type === "START_MONITORING") startMonitoring();
   if (message.type === "STOP_MONITORING") stopMonitoring();
   if (message.type === "PROCESS_LATEST_ATTACHMENT") {
     sendResponse(processLatestAttachment());
     return;
   }
+  if (message.type === "START_ALL_CHATS") startAllChatsMonitoring();
+  if (message.type === "STOP_ALL_CHATS") stopAllChatsMonitoring();
+  if (message.type === "STOP_ALL_TASKS") {
+    stopMonitoring();
+    stopAllChatsMonitoring();
+    chrome.storage.local.set({ monitoringEnabled: false, monitoringAllEnabled: false });
+  }
   sendResponse({ ok: true });
 });
 
-chrome.storage.local.get("monitoringEnabled", ({ monitoringEnabled }) => {
-  if (monitoringEnabled) startMonitoring();
+chrome.storage.local.get(["monitoringEnabled", "monitoringAllEnabled"], ({ monitoringEnabled, monitoringAllEnabled }) => {
+  if (monitoringAllEnabled) startAllChatsMonitoring();
+  else if (monitoringEnabled) startMonitoring();
 });
