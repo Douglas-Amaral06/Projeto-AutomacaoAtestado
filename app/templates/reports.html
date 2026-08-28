@@ -1,1 +1,126 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relatórios</title><style>body{font-family:Arial;margin:0;background:#f3f5f7}header{background:#075e54;color:#fff;padding:17px 28px}header a{color:#fff}main{padding:24px}.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.card,table{background:#fff;padding:17px;border-radius:9px;box-shadow:0 2px 7px #0001}.big{font-size:28px;font-weight:bold;color:#075e54}table{width:100%;margin-top:20px;border-collapse:collapse}th,td{text-align:left;padding:10px;border-bottom:1px solid #ddd}@media(max-width:900px){.cards{grid-template-columns:1fr 1fr}}</style></head><body><header><a href="/">← Painel</a> · Relatórios gerenciais</header><main><section class="cards"><div class="card"><div class="big">{{ summary.total or 0 }}</div>Total</div><div class="card"><div class="big">{{ summary.pendentes or 0 }}</div>Pendentes</div><div class="card"><div class="big">{{ summary.confirmados or 0 }}</div>Confirmados</div><div class="card"><div class="big">{{ summary.rejeitados or 0 }}</div>Rejeitados</div><div class="card"><div class="big">{{ summary.dias or 0 }}</div>Dias afastados</div></section><div class="card" style="margin-top:15px">Tempo médio até revisão: <strong>{{ timing.horas or 0 }} hora(s)</strong></div><table><thead><tr><th>Mês</th><th>Atestados</th><th>Dias</th></tr></thead><tbody>{% for row in monthly %}<tr><td>{{ row.mes }}</td><td>{{ row.quantidade }}</td><td>{{ row.dias }}</td></tr>{% endfor %}</tbody></table></main></body></html>
+{% extends "base.html" %}
+
+{% block title %}Relatórios - Recebimento de Atestados{% endblock %}
+
+{% block page_title %}Relatórios{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Análise de dados</h1>
+  <p class="page-description">Relatórios consolidados de processamento</p>
+</div>
+
+<!-- Cards de resumo -->
+<div class="container-grid">
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <div class="stat-card-kicker">Volume</div>
+      <div class="stat-card-trend neutral">Total</div>
+    </div>
+    <div class="stat-card-content">
+      <div class="stat-card-value">{{ summary.total or 0 }}</div>
+      <div class="stat-card-label">Atestados processados</div>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <div class="stat-card-icon"></div>
+      <div class="stat-card-trend neutral">Pendentes</div>
+    </div>
+    <div class="stat-card-content">
+      <div class="stat-card-value">{{ summary.pendentes or 0 }}</div>
+      <div class="stat-card-label">Aguardando revisão</div>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <div class="stat-card-kicker">Concluídos</div>
+      <div class="stat-card-trend up">Confirmados</div>
+    </div>
+    <div class="stat-card-content">
+      <div class="stat-card-value">{{ summary.confirmados or 0 }}</div>
+      <div class="stat-card-label">Aprovados</div>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <div class="stat-card-kicker">Exceções</div>
+      <div class="stat-card-trend down">Rejeitados</div>
+    </div>
+    <div class="stat-card-content">
+      <div class="stat-card-value">{{ summary.rejeitados or 0 }}</div>
+      <div class="stat-card-label">Recusados</div>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <div class="stat-card-kicker">Período</div>
+      <div class="stat-card-trend neutral">Afastamentos</div>
+    </div>
+    <div class="stat-card-content">
+      <div class="stat-card-value">{{ summary.dias or 0 }}</div>
+      <div class="stat-card-label">Dias totais</div>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <div class="stat-card-icon"></div>
+      <div class="stat-card-trend neutral">Tempo</div>
+    </div>
+    <div class="stat-card-content">
+      <div class="stat-card-value">{{ timing.horas or 0 }}</div>
+      <div class="stat-card-label">Horas médias até revisão</div>
+    </div>
+  </div>
+</div>
+
+<!-- Tabela mensal -->
+<div class="section">
+  <h2 class="section-title">Histórico mensal</h2>
+  <div class="data-table-wrapper">
+    {% if monthly %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Mês</th>
+          <th style="text-align: right;">Atestados</th>
+          <th style="text-align: right;">Dias de afastamento</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in monthly %}
+        <tr>
+          <td><strong>{{ row.mes }}</strong></td>
+          <td style="text-align: right;">{{ row.quantidade }}</td>
+          <td style="text-align: right;">{{ row.dias }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-state-rule" aria-hidden="true"></div>
+      <h3 class="empty-state-title">Sem dados</h3>
+      <p class="empty-state-description">Nenhum atestado foi processado ainda.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Link para exportação -->
+<div class="section">
+  <h2 class="section-title">Exportação</h2>
+  <a href="/exportar.xlsx" class="btn btn-primary" style="display: inline-flex;">
+    Baixar em Excel
+  </a>
+  <p style="font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-top: var(--space-3);">
+    Exporta todos os atestados com dados completos em formato XLSX.
+  </p>
+</div>
+
+{% endblock %}

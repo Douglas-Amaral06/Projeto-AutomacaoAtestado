@@ -1,11 +1,26 @@
-const API_URL = "http://127.0.0.1:8000/api/atestados";
-const LOG_URL = "http://127.0.0.1:8000/api/logs";
+importScripts("backend-config.js");
+let uploadInProgress = false;
 
 function base64ToBlob(base64, mimeType) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return new Blob([bytes], { type: mimeType });
+}
+
+function normalizeAttachmentPayload(payload) {
+  // Mantem compatibilidade com eventos gerados antes do payload estruturado.
+  return {
+    arquivo: payload.arquivo ?? payload.base64,
+    nome_arquivo: payload.nome_arquivo ?? payload.filename,
+    tipo_arquivo: payload.tipo_arquivo ?? payload.mimeType,
+    id_mensagem: payload.id_mensagem ?? null,
+    id_conversa: payload.id_conversa ?? null,
+    whatsapp_remetente: payload.whatsapp_remetente ?? null,
+    data_recebimento: payload.data_recebimento ?? null,
+    key: payload.key,
+    unidade: payload.unidade ?? null,
+  };
 }
 
 async function saveStatus(message, error = false) {
@@ -27,7 +42,7 @@ async function recordLog(nivel, evento, mensagem, detalhes = null) {
   await chrome.storage.local.set({ actionLogs: [entry, ...actionLogs].slice(0, 300) });
   try {
     const { apiToken = "" } = await chrome.storage.local.get("apiToken");
-    await fetch(LOG_URL, {
+    await fetch(await backendUrl("/api/logs"), {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Token": apiToken },
       body: JSON.stringify({ nivel, evento, mensagem: safeMessage, detalhes: safeDetails })
@@ -38,12 +53,29 @@ async function recordLog(nivel, evento, mensagem, detalhes = null) {
 }
 
 async function uploadAttachment(payload) {
-  await recordLog("info", "upload_iniciado", "Enviando documento para analise.", { chave: payload.key });
+  if (uploadInProgress) {
+    throw new Error("Já existe outro atestado sendo processado. Aguarde a conclusão.");
+  }
+  uploadInProgress = true;
+  await chrome.storage.local.set({ activeTask: { type: "upload", startedAt: Date.now() } });
+  try {
+  const attachment = normalizeAttachmentPayload(payload);
+  await recordLog("info", "upload_iniciado", "Enviando documento para analise.", { chave: attachment.key });
   const formData = new FormData();
-  formData.append("file", base64ToBlob(payload.base64, payload.mimeType), payload.filename);
-  const { apiToken = "" } = await chrome.storage.local.get("apiToken");
+  formData.append("file", base64ToBlob(attachment.arquivo, attachment.tipo_arquivo), attachment.nome_arquivo);
+  // O FastAPI atual continua recebendo o mesmo campo "file". Os metadados
+  // acompanham o request para o proximo ponto de integracao, sem dependencia
+  // de Databricks e sem alterar o arquivo enviado.
+  formData.append("id_mensagem", attachment.id_mensagem || "");
+  formData.append("id_conversa", attachment.id_conversa || "");
+  formData.append("whatsapp_remetente", attachment.whatsapp_remetente || "");
+  formData.append("data_recebimento", attachment.data_recebimento || "");
+  formData.append("tipo_arquivo", attachment.tipo_arquivo || "");
+  formData.append("nome_arquivo", attachment.nome_arquivo || "");
+  const { apiToken = "", configuredUnit = "UNI001" } = await chrome.storage.local.get(["apiToken", "configuredUnit"]);
+  formData.append("unidade", attachment.unidade || configuredUnit);
   if (!apiToken) throw new Error("Token da extensao nao configurado.");
-  const response = await fetch(API_URL, { method: "POST", body: formData, headers: { "X-API-Token": apiToken } });
+  const response = await fetch(await backendUrl("/api/atestados"), { method: "POST", body: formData, headers: { "X-API-Token": apiToken } });
   const result = await response.json();
   if (!response.ok) {
     const detail = result.detail;
@@ -58,30 +90,43 @@ async function uploadAttachment(payload) {
   }
   if (result.status === "ignorado") {
     await saveStatus(`Arquivo ignorado: ${result.motivo || "nao foi identificado como atestado."}`);
-    await recordLog("info", "arquivo_ignorado", `${payload.filename}: ${result.motivo || "nao identificado como atestado"}`, { tipo_documento: result.tipo_documento });
+    await recordLog("info", "arquivo_ignorado", `${attachment.nome_arquivo}: ${result.motivo || "nao identificado como atestado"}`, { tipo_documento: result.tipo_documento });
   } else if (result.status === "duplicado") {
     await saveStatus(`Arquivo ja processado anteriormente como atestado #${result.id}.`);
-    await recordLog("aviso", "arquivo_duplicado", `${payload.filename} ja corresponde ao atestado #${result.id}.`);
+    await recordLog("aviso", "arquivo_duplicado", `${attachment.nome_arquivo} ja corresponde ao atestado #${result.id}.`);
   } else {
-    await saveStatus(`Atestado #${result.id} recebido automaticamente.`);
+    await saveStatus(result.aviso || `Atestado #${result.id} recebido automaticamente.`);
     await recordLog("info", "atestado_salvo", `Atestado #${result.id} salvo para conferencia.`);
   }
+  await chrome.storage.local.set({
+    lastDelivery: {
+      id: result.id ?? null,
+      status: result.status,
+      warning: result.aviso || null,
+      unit: attachment.unidade || configuredUnit,
+      sentAt: Date.now(),
+    },
+  });
   return result;
+  } finally {
+    uploadInProgress = false;
+    await chrome.storage.local.remove("activeTask");
+  }
 }
 
-async function trustedClick(tabId, x, y, conversation) {
+async function trustedClick(tabId, x, y, conversation, button = "left") {
   const target = { tabId };
-  await recordLog("info", "clique_real_iniciado", `Executando clique real em ${conversation}.`, { x, y, tabId });
+  await recordLog("info", "clique_real_iniciado", `Executando clique real em ${conversation}.`, { x, y, tabId, button });
   try {
     await chrome.debugger.attach(target, "1.3");
     await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
       type: "mouseMoved", x, y
     });
     await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
-      type: "mousePressed", x, y, button: "left", clickCount: 1
+      type: "mousePressed", x, y, button, clickCount: 1
     });
     await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", {
-      type: "mouseReleased", x, y, button: "left", clickCount: 1
+      type: "mouseReleased", x, y, button, clickCount: 1
     });
     await recordLog("info", "clique_real_enviado", `Clique enviado para ${conversation}.`, { x, y });
     return { ok: true };
@@ -100,6 +145,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return false;
     }
     trustedClick(_sender.tab.id, message.x, message.y, message.conversation)
+      .then(sendResponse);
+    return true;
+  }
+  if (message.type === "TRUSTED_CONTEXT_CLICK") {
+    if (!_sender.tab?.id) {
+      sendResponse({ ok: false, error: "A aba do WhatsApp nao foi identificada." });
+      return false;
+    }
+    trustedClick(_sender.tab.id, message.x, message.y, message.conversation, "right")
       .then(sendResponse);
     return true;
   }

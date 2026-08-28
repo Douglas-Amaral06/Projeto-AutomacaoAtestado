@@ -1,13 +1,13 @@
 import base64
 import hashlib
+import ipaddress
 import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
-import pyotp
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from cryptography.fernet import Fernet
 from fastapi import HTTPException, Request
 
@@ -16,6 +16,25 @@ from .database import connect
 
 SESSION_COOKIE = "rh_session"
 PASSWORD_HASHER = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=4)
+_DUMMY_PASSWORD_HASH = PASSWORD_HASHER.hash("comparacao-constante-sem-usuario")
+ROLE_PERMISSIONS = {
+    "admin": frozenset({"review", "delete", "reprocess", "export", "reports"}),
+    "analista": frozenset({"review"}),
+}
+
+
+def permissions_for(user) -> frozenset[str]:
+    """Retorna permissões conhecidas; perfis ausentes ou inválidos falham fechados."""
+    try:
+        profile = user["perfil"]
+    except (KeyError, TypeError, IndexError):
+        return frozenset()
+    return ROLE_PERMISSIONS.get(str(profile), frozenset())
+
+
+def require_permission(user, permission: str) -> None:
+    if permission not in permissions_for(user):
+        raise HTTPException(403, "Operação não autorizada. Privilégios insuficientes.")
 
 
 def utc_now() -> datetime:
@@ -43,26 +62,54 @@ def hash_password(password: str) -> str:
 def verify_password(stored_hash: str, password: str) -> bool:
     try:
         return PASSWORD_HASHER.verify(stored_hash, password)
-    except VerifyMismatchError:
+    except (VerifyMismatchError, InvalidHashError):
         return False
+
+
+def verify_login_password(user, password: str) -> bool:
+    """Evita revelar por tempo de resposta se o usuário existe."""
+    stored_hash = user["senha_hash"] if user else _DUMMY_PASSWORD_HASH
+    return verify_password(stored_hash, password) and user is not None
 
 
 def encrypt_totp(secret: str) -> str:
     return _fernet().encrypt(secret.encode()).decode()
 
 
-def decrypt_totp(encrypted: str) -> str:
-    return _fernet().decrypt(encrypted.encode()).decode()
-
-
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def trusted_client_ip(request: Request) -> str:
+    """Obtém o IP sem confiar em cabeçalhos enviados por conexões diretas."""
+    peer = request.client.host if request.client else ""
+    trust_cloudflare = os.getenv("TRUST_CLOUDFLARE", "false").casefold() == "true"
+    if trust_cloudflare:
+        configured = os.getenv("TRUSTED_PROXY_IPS", "127.0.0.1,::1").split(",")
+        try:
+            trusted_proxies = {
+                ipaddress.ip_address(value.strip()) for value in configured if value.strip()
+            }
+            peer_address = ipaddress.ip_address(peer)
+        except ValueError as error:
+            raise HTTPException(400, "Configuração ou origem do proxy inválida.") from error
+        if not trusted_proxies or peer_address not in trusted_proxies:
+            raise HTTPException(400, "Acesso direto bloqueado. Proxy não autorizado.")
+        forwarded = request.headers.get("cf-connecting-ip", "").strip()
+        try:
+            return ipaddress.ip_address(forwarded).compressed
+        except ValueError as error:
+            raise HTTPException(400, "Formato de IP inválido no cabeçalho do proxy.") from error
+    try:
+        return ipaddress.ip_address(peer).compressed
+    except ValueError:
+        # Clientes de teste e transportes locais sem IP compartilham um bucket
+        # conservador, mas nunca conseguem escolher o valor via cabeçalho.
+        return "unknown"
+
+
 def client_fingerprint(request: Request) -> tuple[str, str]:
-    ip = request.client.host if request.client else "unknown"
-    if os.getenv("TRUST_CLOUDFLARE", "false").lower() == "true":
-        ip = request.headers.get("cf-connecting-ip", ip)
+    ip = trusted_client_ip(request)
     ua = request.headers.get("user-agent", "")
     return hash_token(f"ip:{ip}"), hash_token(f"ua:{ua}")
 
@@ -70,6 +117,12 @@ def client_fingerprint(request: Request) -> tuple[str, str]:
 def login_key(request: Request, username: str) -> str:
     ip_hash, _ = client_fingerprint(request)
     return hash_token(f"{ip_hash}:{username.casefold()}")
+
+
+def login_keys(request: Request, username: str) -> tuple[str, str]:
+    """Limita por IP e também pela combinação IP/conta."""
+    ip_hash, _ = client_fingerprint(request)
+    return hash_token(f"ip-global:{ip_hash}"), login_key(request, username)
 
 
 def is_login_blocked(key_hash: str) -> bool:
@@ -136,7 +189,7 @@ def current_user(request: Request, required: bool = True):
     ip_hash, ua_hash = client_fingerprint(request)
     with connect() as connection:
         row = connection.execute(
-            """SELECT u.*, s.csrf_token, s.expira_em, s.user_agent_hash, s.id session_id
+            """SELECT u.*, s.csrf_token, s.expira_em, s.ip_hash, s.user_agent_hash, s.id session_id
                FROM sessoes s JOIN usuarios u ON u.id=s.usuario_id
                WHERE s.token_hash=? AND u.ativo=1""",
             (hash_token(raw),),
@@ -146,6 +199,8 @@ def current_user(request: Request, required: bool = True):
     # User-Agent é vinculado; IP não é bloqueante para tolerar redes corporativas móveis.
     if row["user_agent_hash"] != ua_hash:
         raise HTTPException(401, "Sessao invalida")
+    if row["perfil"] == "admin" and row["ip_hash"] and row["ip_hash"] != ip_hash:
+        raise HTTPException(401, "Sessao administrativa invalida")
     return row
 
 
@@ -154,13 +209,16 @@ def require_csrf(request: Request, user, supplied: str) -> None:
         raise HTTPException(403, "Token CSRF invalido")
 
 
-def verify_service_token(request: Request) -> None:
+def verify_service_token(request: Request) -> int | str:
+    if os.getenv("EXTENSION_AUTH_REQUIRED", "true").lower() != "true":
+        return "autenticacao-desabilitada"
     raw = request.headers.get("x-api-token", "")
     if not raw:
         raise HTTPException(401, "Token da extensao ausente")
     with connect() as connection:
         row = connection.execute(
-            "SELECT id FROM tokens_servico WHERE token_hash=? AND ativo=1", (hash_token(raw),)
+            """SELECT id FROM tokens_servico WHERE token_hash=? AND ativo=1
+               AND (expira_em IS NULL OR expira_em>?)""", (hash_token(raw), utc_now().isoformat())
         ).fetchone()
         if row:
             connection.execute(
@@ -168,8 +226,17 @@ def verify_service_token(request: Request) -> None:
             )
     if not row:
         raise HTTPException(401, "Token da extensao invalido")
+    return row["id"]
 
 
 def redact(value: str) -> str:
     value = re.sub(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b", "***CPF***", value)
+    value = re.sub(r"(?i)([?&](?:access_?token|token|api_?key|key|secret|password|senha)=)[^&#\s]+", r"\1[DADO PROTEGIDO]", value)
+    value = re.sub(r"(?i)([a-z][a-z0-9+.-]*://)[^/@\s:]+:[^/@\s]+@", r"\1[DADO PROTEGIDO]@", value)
+    value = re.sub(r"\bdapi[a-zA-Z0-9]{16,}\b", "[DADO PROTEGIDO]", value)
+    value = re.sub(r"\bAIza[0-9A-Za-z_-]{20,}\b", "[DADO PROTEGIDO]", value)
+    value = re.sub(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "[DADO PROTEGIDO]", value)
+    value = re.sub(r"(?i)\bBearer\s+[^\s,;]+", "Bearer [DADO PROTEGIDO]", value)
+    value = re.sub(r"(?i)(authorization|bearer|api[_ -]?key|token|senha|password|secret)(\s*[:=]\s*)([^\s,;]+)", r"\1\2[DADO PROTEGIDO]", value)
+    value = re.sub(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", "***EMAIL***", value)
     return value

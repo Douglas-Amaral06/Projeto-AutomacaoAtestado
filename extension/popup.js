@@ -1,3 +1,4 @@
+// Elementos do DOM
 const fileInput = document.getElementById("file");
 const sendButton = document.getElementById("send");
 const statusBox = document.getElementById("status");
@@ -10,19 +11,68 @@ const pairExtensionButton = document.getElementById("pairExtension");
 const connectionState = document.getElementById("connectionState");
 const setupArea = document.getElementById("setupArea");
 const operationalArea = document.getElementById("operationalArea");
+const configUnitInput = document.getElementById("configUnit");
+const lastDeliveryBox = document.getElementById("lastDelivery");
+const whatsappStatus = document.getElementById("whatsappStatus");
+const whatsappIndicator = document.getElementById("whatsappIndicator");
+const backendUrlInput = document.getElementById("backendUrl");
+const saveBackendButton = document.getElementById("saveBackend");
+const pairingPageLink = document.getElementById("pairingPageLink");
+const logsPageLink = document.getElementById("logsPageLink");
+
+function updateBackendLinks(baseUrl) {
+  pairingPageLink.href = `${baseUrl}/extensao`;
+  logsPageLink.href = `${baseUrl}/logs`;
+}
+
+function normalizedUnit(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 30);
+}
+
+function renderLastDelivery(delivery) {
+  if (!delivery?.sentAt) return;
+  const label = delivery.id ? `Atestado #${delivery.id}` : "Documento analisado";
+  const status = delivery.status === "duplicado" ? "Já processado" : delivery.status === "ignorado" ? "Ignorado" : "Enviado para revisão";
+  const title = document.createElement("strong");
+  const details = document.createElement("span");
+  title.textContent = `${label} · ${status}`;
+  details.textContent = `Unidade ${delivery.unit || "não informada"} · ${new Date(delivery.sentAt).toLocaleString("pt-BR")}`;
+  lastDeliveryBox.replaceChildren(title, details);
+}
+
+function applyTaskState(state) {
+  const monitoring = Boolean(state.monitoringEnabled || state.monitoringAllEnabled);
+  const processing = Boolean(state.activeTask);
+  processLatestButton.disabled = monitoring || processing;
+  sendButton.disabled = monitoring || processing;
+  fileInput.disabled = monitoring || processing;
+  monitorInput.disabled = processing || Boolean(state.monitoringAllEnabled);
+  monitorAllInput.disabled = processing || Boolean(state.monitoringEnabled);
+  stopTaskButton.style.display = monitoring ? "block" : "none";
+}
+
+async function refreshWhatsAppState() {
+  const tabs = await chrome.tabs.query({ url: "https://web.whatsapp.com/*" });
+  const opened = tabs.length > 0;
+  whatsappStatus.textContent = opened ? "Aberto e disponível" : "Não está aberto";
+  whatsappIndicator.className = `status-indicator ${opened ? "connected" : "disconnected"}`;
+  if (!opened) showStatus("WhatsApp Web não está aberto. Abra web.whatsapp.com para usar o monitoramento.", true);
+  return opened;
+}
 
 function showStatus(message, isError = false) {
   statusBox.textContent = message;
-  statusBox.style.color = isError ? "#b3261e" : "#075e54";
+  statusBox.style.color = isError ? "#d32f2f" : "#107c41";
+  statusBox.style.backgroundColor = isError ? "#ffebee" : "#d8f1dd";
+  statusBox.style.borderLeft = `4px solid ${isError ? "#d32f2f" : "#107c41"}`;
 }
 
 async function getWhatsAppTab() {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  const tab = tabs[0];
-  if (!tab || !tab.url?.startsWith("https://web.whatsapp.com/")) {
-    throw new Error("Abra o WhatsApp Web nesta aba primeiro.");
-  }
-  return tab;
+  const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (activeTabs[0]?.url?.startsWith("https://web.whatsapp.com/")) return activeTabs[0];
+  const whatsappTabs = await chrome.tabs.query({ url: "https://web.whatsapp.com/*" });
+  if (!whatsappTabs[0]) throw new Error("WhatsApp Web não está aberto. Abra web.whatsapp.com primeiro.");
+  return whatsappTabs[0];
 }
 
 async function sendToWhatsApp(tab, message) {
@@ -37,150 +87,314 @@ async function sendToWhatsApp(tab, message) {
 function setConnectedUi(connected) {
   setupArea.hidden = connected;
   operationalArea.hidden = !connected;
-  connectionState.textContent = connected ? "Conectada" : "Não conectada";
-  connectionState.style.color = connected ? "#075e54" : "#b3261e";
+
+  const connectionStateEl = document.getElementById("connectionState");
+  if (connected) {
+    connectionStateEl.className = "connection-state connected";
+    connectionStateEl.textContent = "Extensão conectada";
+  } else {
+    connectionStateEl.className = "connection-state disconnected";
+    connectionStateEl.textContent = "Extensão desconectada";
+  }
+
+  stopTaskButton.style.display = (monitorInput.checked || monitorAllInput.checked) ? "block" : "none";
 }
 
 async function initializePopup() {
-  const state = await chrome.storage.local.get(["monitoringEnabled", "monitoringAllEnabled", "lastStatus", "apiToken", "pairingFailures", "pairingBlockedUntil"]);
+  // Recarregar estado
+  const state = await chrome.storage.local.get([
+    "monitoringEnabled",
+    "monitoringAllEnabled",
+    "lastStatus",
+    "apiToken",
+    "pairingFailures",
+    "pairingBlockedUntil",
+    "configuredUnit",
+    "lastDelivery",
+    "activeTask",
+    "backendBaseUrl",
+  ]);
+
+  if (state.activeTask?.startedAt && Date.now() - state.activeTask.startedAt > 10 * 60 * 1000) {
+    await chrome.storage.local.remove("activeTask");
+    state.activeTask = null;
+  }
+
+  // Restaurar checkboxes
   monitorInput.checked = Boolean(state.monitoringEnabled);
   monitorAllInput.checked = Boolean(state.monitoringAllEnabled);
-  if (state.lastStatus?.message) showStatus(state.lastStatus.message, state.lastStatus.error);
+  configUnitInput.value = state.configuredUnit || "UNI001";
+  const configuredBackend = normalizeBackendUrl(state.backendBaseUrl || DEFAULT_BACKEND_URL);
+  backendUrlInput.value = configuredBackend;
+  updateBackendLinks(configuredBackend);
+  renderLastDelivery(state.lastDelivery);
+  applyTaskState(state);
+  await refreshWhatsAppState();
+
+  // Restaurar status anterior se existir
+  if (state.lastStatus?.message) {
+    showStatus(state.lastStatus.message, state.lastStatus.error);
+  }
+
+  // Verificar se está conectado
   if (!state.apiToken) {
     setConnectedUi(false);
+
+    // Verificar se está bloqueado por falhas
     if (state.pairingBlockedUntil > Date.now()) {
       const minutes = Math.ceil((state.pairingBlockedUntil - Date.now()) / 60000);
       pairingCodeInput.disabled = true;
       pairExtensionButton.disabled = true;
       showStatus(`Pareamento bloqueado por segurança. Tente novamente em ${minutes} minuto(s).`, true);
-    } else if (state.pairingBlockedUntil) {
-      await chrome.storage.local.remove(["pairingFailures", "pairingBlockedUntil"]);
     }
     return;
   }
+
+  // Verificar se o token ainda é válido
   try {
-    const response = await fetch("http://127.0.0.1:8000/api/extensao/status", {
-      headers: { "X-API-Token": state.apiToken }
+    const response = await fetch(await backendUrl("/api/extensao/status"), {
+      headers: { "X-API-Token": state.apiToken },
     });
-    if (!response.ok) throw new Error("Conexão expirada ou revogada");
+    if (!response.ok) throw new Error("Conexão expirada");
     setConnectedUi(true);
   } catch (error) {
     await chrome.storage.local.remove("apiToken");
     setConnectedUi(false);
-    showStatus(`${error.message}. Conecte a extensão novamente.`, true);
+    showStatus("Token expirado ou revogado. Conecte a extensão novamente.", true);
   }
 }
 
-initializePopup();
+// Inicializar ao carregar
+document.addEventListener("DOMContentLoaded", initializePopup);
 
+saveBackendButton.addEventListener("click", async () => {
+  saveBackendButton.disabled = true;
+  try {
+    const baseUrl = normalizeBackendUrl(backendUrlInput.value);
+    const originPermission = `${baseUrl}/*`;
+    if (baseUrl !== DEFAULT_BACKEND_URL) {
+      const granted = await chrome.permissions.request({ origins: [originPermission] });
+      if (!granted) throw new Error("Permissão para acessar esse servidor não foi concedida");
+    }
+    const previous = await getBackendBaseUrl();
+    await chrome.storage.local.set({ backendBaseUrl: baseUrl });
+    backendUrlInput.value = baseUrl;
+    updateBackendLinks(baseUrl);
+    if (previous !== baseUrl) {
+      await chrome.storage.local.remove(["apiToken", "lastDelivery"]);
+      setConnectedUi(false);
+      showStatus("Servidor salvo. Faça um novo pareamento para este endereço.");
+    } else {
+      showStatus("Endereço do servidor confirmado.");
+    }
+  } catch (error) {
+    showStatus(error.message, true);
+  } finally {
+    saveBackendButton.disabled = false;
+  }
+});
+
+configUnitInput.addEventListener("change", async () => {
+  const unit = normalizedUnit(configUnitInput.value);
+  if (!unit) {
+    configUnitInput.value = "UNI001";
+    showStatus("Informe uma unidade válida, como UNI001.", true);
+    return;
+  }
+  configUnitInput.value = unit;
+  await chrome.storage.local.set({ configuredUnit: unit });
+  showStatus(`Unidade ${unit} salva. Os próximos atestados usarão essa identificação.`);
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.lastDelivery?.newValue) renderLastDelivery(changes.lastDelivery.newValue);
+  if (changes.activeTask || changes.monitoringEnabled || changes.monitoringAllEnabled) {
+    chrome.storage.local.get(["activeTask", "monitoringEnabled", "monitoringAllEnabled"]).then(applyTaskState);
+  }
+});
+
+// Pareamento
 pairingCodeInput.addEventListener("input", () => {
   pairingCodeInput.value = pairingCodeInput.value.replace(/\D/g, "").slice(0, 6);
 });
 
 pairExtensionButton.addEventListener("click", async () => {
   const localState = await chrome.storage.local.get(["pairingFailures", "pairingBlockedUntil"]);
+
   if (localState.pairingBlockedUntil > Date.now()) {
     const minutes = Math.ceil((localState.pairingBlockedUntil - Date.now()) / 60000);
-    return showStatus(`Pareamento bloqueado. Aguarde ${minutes} minuto(s).`, true);
+    showStatus(`Pareamento bloqueado. Aguarde ${minutes} minuto(s).`, true);
+    return;
   }
+
   const codigo = pairingCodeInput.value.trim();
-  if (!/^\d{6}$/.test(codigo)) return showStatus("Informe o código de 6 dígitos.", true);
+  if (!/^\d{6}$/.test(codigo)) {
+    showStatus("Informe um código de 6 dígitos.", true);
+    return;
+  }
+
   pairExtensionButton.disabled = true;
   showStatus("Conectando a extensão...");
+
   try {
-    const response = await fetch("http://127.0.0.1:8000/api/parear", {
+    const response = await fetch(await backendUrl("/api/parear"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ codigo, nome: `Chrome ${chrome.runtime.getManifest().version}` })
+      body: JSON.stringify({
+        codigo,
+        nome: `Chrome ${chrome.runtime.getManifest().version}`,
+      }),
     });
+
     const result = await response.json();
     if (!response.ok || !result.token) {
       const detail = result.detail;
       const message = typeof detail === "object" ? detail.mensagem : detail;
       const failures = Number(localState.pairingFailures || 0) + 1;
       const serverBlocked = response.status === 429;
+
       if (failures >= 3 || serverBlocked) {
-        const waitMilliseconds = serverBlocked && detail?.aguarde_segundos
-          ? Number(detail.aguarde_segundos) * 1000 : 30 * 60 * 1000;
-        await chrome.storage.local.set({ pairingFailures: 3, pairingBlockedUntil: Date.now() + waitMilliseconds });
+        const waitMs = serverBlocked && detail?.aguarde_segundos
+          ? Number(detail.aguarde_segundos) * 1000
+          : 30 * 60 * 1000;
+        await chrome.storage.local.set({
+          pairingFailures: 3,
+          pairingBlockedUntil: Date.now() + waitMs,
+        });
         pairingCodeInput.disabled = true;
         pairExtensionButton.disabled = true;
       } else {
         await chrome.storage.local.set({ pairingFailures: failures });
       }
+
       throw new Error(message || "Não foi possível conectar");
     }
-    await chrome.storage.local.set({ apiToken: result.token, pairingFailures: 0 });
+
+    await chrome.storage.local.set({
+      apiToken: result.token,
+      pairingFailures: 0,
+    });
     await chrome.storage.local.remove("pairingBlockedUntil");
     pairingCodeInput.value = "";
     setConnectedUi(true);
-    showStatus("Extensão conectada com segurança.");
+    showStatus("Extensão conectada com sucesso.");
   } catch (error) {
-    showStatus(`${error.message}. Confirme se o servidor está ativo e gere um novo código.`, true);
+    showStatus(
+      `${error.message}. Confirme se o servidor está ativo e gere um novo código.`,
+      true
+    );
   } finally {
     const state = await chrome.storage.local.get("pairingBlockedUntil");
     pairExtensionButton.disabled = state.pairingBlockedUntil > Date.now();
   }
 });
 
+// Monitoramento
 monitorInput.addEventListener("change", async () => {
   try {
     const tab = await getWhatsAppTab();
     const enabled = monitorInput.checked;
-    if (enabled) monitorAllInput.checked = false;
-    await chrome.storage.local.set({ monitoringEnabled: enabled, monitoringAllEnabled: false });
-    await sendToWhatsApp(tab, { type: enabled ? "START_MONITORING" : "STOP_MONITORING" });
-    showStatus(enabled ? "Monitoramento ativo nesta conversa." : "Monitoramento pausado.");
+
+    if (enabled) {
+      monitorAllInput.checked = false;
+    }
+
+    await chrome.storage.local.set({
+      monitoringEnabled: enabled,
+      monitoringAllEnabled: false,
+    });
+    await sendToWhatsApp(tab, {
+      type: enabled ? "START_MONITORING" : "STOP_MONITORING",
+    });
+
+    showStatus(
+      enabled
+        ? "Monitorando conversa aberta..."
+        : "Monitoramento pausado"
+    );
   } catch (error) {
     monitorInput.checked = false;
     await chrome.storage.local.set({ monitoringEnabled: false });
     showStatus(error.message, true);
   }
+
+  applyTaskState({ monitoringEnabled: monitorInput.checked, monitoringAllEnabled: monitorAllInput.checked });
 });
 
 monitorAllInput.addEventListener("change", async () => {
   try {
     const tab = await getWhatsAppTab();
     const enabled = monitorAllInput.checked;
-    if (enabled) monitorInput.checked = false;
-    await chrome.storage.local.set({ monitoringAllEnabled: enabled, monitoringEnabled: false });
-    await sendToWhatsApp(tab, { type: enabled ? "START_ALL_CHATS" : "STOP_ALL_CHATS" });
-    showStatus(enabled ? "Monitorando conversas nao lidas." : "Monitoramento geral pausado.");
+
+    if (enabled) {
+      monitorInput.checked = false;
+    }
+
+    await chrome.storage.local.set({
+      monitoringAllEnabled: enabled,
+      monitoringEnabled: false,
+    });
+    await sendToWhatsApp(tab, {
+      type: enabled ? "START_ALL_CHATS" : "STOP_ALL_CHATS",
+    });
+
+    showStatus(
+      enabled
+        ? "Monitorando conversas não lidas..."
+        : "Monitoramento pausado"
+    );
   } catch (error) {
     monitorAllInput.checked = false;
     await chrome.storage.local.set({ monitoringAllEnabled: false });
     showStatus(error.message, true);
   }
+
+  applyTaskState({ monitoringEnabled: monitorInput.checked, monitoringAllEnabled: monitorAllInput.checked });
 });
 
 stopTaskButton.addEventListener("click", async () => {
   try {
     const tab = await getWhatsAppTab();
-    await chrome.storage.local.set({ monitoringEnabled: false, monitoringAllEnabled: false });
+    await chrome.storage.local.set({
+      monitoringEnabled: false,
+      monitoringAllEnabled: false,
+    });
     monitorInput.checked = false;
     monitorAllInput.checked = false;
     await sendToWhatsApp(tab, { type: "STOP_ALL_TASKS" });
-    showStatus("Tarefa interrompida pelo analista.");
+    showStatus("Tarefa pausada");
   } catch (error) {
     showStatus(error.message, true);
   }
+
+  stopTaskButton.style.display = "none";
 });
 
+// Processar último anexo
 processLatestButton.addEventListener("click", async () => {
   processLatestButton.disabled = true;
-  showStatus("Localizando o ultimo anexo recebido...");
+  showStatus("Localizando último anexo...");
+
   try {
     const tab = await getWhatsAppTab();
     const result = await sendToWhatsApp(tab, { type: "PROCESS_LATEST_ATTACHMENT" });
-    if (!result?.ok) throw new Error(result?.error || "Nenhum anexo compativel encontrado na conversa.");
-    showStatus("Anexo encontrado. Enviando para extracao...");
+
+    if (!result?.ok) {
+      throw new Error(
+        result?.error || "Nenhum anexo compatível encontrado na conversa."
+      );
+    }
+
+    showStatus("Anexo localizado e enviado para processamento.");
   } catch (error) {
-    showStatus(`${error.message} Atualize a pagina do WhatsApp Web e tente novamente.`, true);
+    showStatus(`${error.message}. Atualize o WhatsApp Web e tente novamente.`, true);
   } finally {
     processLatestButton.disabled = false;
   }
 });
 
+// Envio manual
 sendButton.addEventListener("click", async () => {
   const file = fileInput.files[0];
   if (!file) {
@@ -189,26 +403,56 @@ sendButton.addEventListener("click", async () => {
   }
 
   sendButton.disabled = true;
-  showStatus("Enviando e extraindo dados...");
+  await chrome.storage.local.set({ activeTask: { type: "manual-upload", startedAt: Date.now() } });
+  showStatus("Enviando arquivo...");
+
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("unidade", normalizedUnit(configUnitInput.value) || "UNI001");
 
   try {
     const { apiToken = "" } = await chrome.storage.local.get("apiToken");
-    if (!apiToken) throw new Error("Extensão não conectada. Faça o pareamento primeiro");
-    const response = await fetch("http://127.0.0.1:8000/api/atestados", {
+    if (!apiToken) {
+      throw new Error("Extensão não conectada. Faça o pareamento primeiro.");
+    }
+
+    const response = await fetch(await backendUrl("/api/atestados"), {
       method: "POST",
       body: formData,
-      headers: { "X-API-Token": apiToken }
+      headers: { "X-API-Token": apiToken },
     });
+
     const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || "Falha no processamento");
-    if (result.status === "ignorado") showStatus("Arquivo ignorado: nao foi identificado como atestado.");
-    else if (result.status === "duplicado") showStatus(`Arquivo ja processado como atestado #${result.id}.`);
-    else showStatus(`Atestado #${result.id} recebido. Abra o painel para conferir.`);
+    if (!response.ok) {
+      throw new Error(result.detail?.mensagem || result.detail || "Falha no processamento");
+    }
+
+    if (result.status === "ignorado") {
+      showStatus(`Arquivo ignorado: ${result.motivo || "não identificado como atestado"}`);
+    } else if (result.status === "duplicado") {
+      showStatus(`Arquivo já processado como atestado #${result.id}`);
+    } else {
+      showStatus(result.aviso || `Atestado #${result.id} recebido e enviado para revisão.`);
+    }
+
+    const delivery = {
+      id: result.id ?? null,
+      status: result.status,
+      unit: normalizedUnit(configUnitInput.value) || "UNI001",
+      sentAt: Date.now(),
+      warning: result.aviso || null,
+    };
+    await chrome.storage.local.set({ lastDelivery: delivery });
+    renderLastDelivery(delivery);
+
+    fileInput.value = "";
   } catch (error) {
-    showStatus(`Erro: ${error.message}. Verifique se o servidor local esta ativo.`, true);
+    showStatus(
+      `${error.message}. Verifique se o servidor está ativo.`,
+      true
+    );
   } finally {
+    await chrome.storage.local.remove("activeTask");
     sendButton.disabled = false;
   }
 });

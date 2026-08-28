@@ -1,1 +1,284 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Revisar #{{ item.id }}</title><style>body{font-family:Arial;margin:0;background:#f3f5f7}header{background:#075e54;color:#fff;padding:15px 24px}header a{color:#fff}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:20px;height:calc(100vh - 100px)}iframe,.form{width:100%;height:100%;border:0;background:#fff;border-radius:9px;box-shadow:0 2px 8px #0001}.form{box-sizing:border-box;padding:20px;overflow:auto}label{display:block;margin:10px 0;font-size:13px}input,textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid #bbc;border-radius:5px}textarea{min-height:75px}.actions{display:flex;gap:10px;margin-top:15px;align-items:center}button{padding:11px 16px;border:0;border-radius:6px;color:#fff;background:#128c7e;cursor:pointer}.reject,.delete{background:#b3261e}.delete{margin-left:auto;font-size:18px}.confirm{border:0;border-radius:10px;padding:20px;box-shadow:0 5px 25px #0004;max-width:380px}.confirm::backdrop{background:#0008}.confirm-actions{display:flex;gap:10px;justify-content:flex-end}.cancel{background:#68737a}@media(max-width:900px){.grid{grid-template-columns:1fr;height:auto}iframe{height:60vh}}</style></head><body><header><a href="/">← Voltar</a> · Revisão do atestado #{{ item.id }}</header><main class="grid"><iframe title="Documento original" src="/atestados/{{ item.id }}/arquivo"></iframe><section class="form"><form method="post" action="/atestados/{{ item.id }}/revisar"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>Nome<input name="nome" value="{{ item.nome or '' }}"></label><label>CPF<input name="cpf" value="{{ item.cpf or '' }}"></label><label>CID<input name="cid" value="{{ item.cid or '' }}"></label><label>Dias de afastamento<input type="number" min="0" name="dias_afastamento" value="{{ item.dias_afastamento or '' }}"></label><label>Data<input type="date" name="data_atestado" value="{{ item.data_atestado or '' }}"></label><label>Observações<textarea name="observacoes">{{ item.observacoes or '' }}</textarea></label><label>Motivo da rejeição<textarea name="motivo_rejeicao">{{ item.motivo_rejeicao or '' }}</textarea></label><div class="actions"><button name="acao" value="aprovar">Aprovar e salvar</button><button class="reject" name="acao" value="rejeitar">Rejeitar</button><button class="delete" type="button" popovertarget="confirmar-exclusao" title="Excluir atestado" aria-label="Excluir atestado">🗑</button></div></form><div id="confirmar-exclusao" class="confirm" popover><h3>Excluir este atestado?</h3><p>O registro, o documento salvo e a marcação de duplicidade serão removidos. Essa ação não pode ser desfeita.</p><div class="confirm-actions"><button class="cancel" type="button" popovertarget="confirmar-exclusao" popovertargetaction="hide">Não</button><form method="post" action="/atestados/{{ item.id }}/excluir"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="delete" type="submit">Sim, excluir</button></form></div></div></section></main></body></html>
+{% extends "base.html" %}
+
+{% block title %}Revisar Atestado #{{ item.id }}{% endblock %}
+
+{% block page_title %}
+<div class="breadcrumb">
+  <a href="/" class="breadcrumb-link">Dashboard</a>
+  <span class="breadcrumb-separator">/</span>
+  <span class="breadcrumb-item">Atestado #{{ item.id }}</span>
+</div>
+Revisar Atestado
+{% endblock %}
+
+{% block content %}
+<div class="container-grid container-grid-full" style="grid-template-columns: 1fr 1fr; gap: var(--space-6);">
+  <!-- Documento Original -->
+  <div class="card">
+    <h3 style="margin-top: 0;">Documento original</h3>
+    <div style="background: var(--color-bg-secondary); border-radius: var(--radius-lg); height: 500px; display: flex; align-items: center; justify-content: center; overflow: auto;">
+      <iframe
+        src="/atestados/{{ item.id }}/arquivo"
+        title="Documento original"
+        style="width: 100%; height: 100%; border: none; border-radius: var(--radius-lg);"
+      ></iframe>
+    </div>
+  </div>
+
+  <!-- Formulário de Revisão -->
+  <div class="card">
+    <h3 style="margin-top: 0;">Dados do atestado</h3>
+
+    {% if validation.inss_ping %}
+    <div class="alert alert-error" style="background: var(--color-error-muted); border-left-color: var(--color-error); color: var(--color-error-dark); margin-bottom: var(--space-4);">
+      <strong>Encaminhamento ao INSS</strong>
+      <p style="margin: var(--space-2) 0 0; font-size: var(--font-size-sm);">
+        Afastamento superior a 15 dias. Encaminhe o caso às autoridades competentes antes de finalizar.
+      </p>
+    </div>
+    {% endif %}
+
+    {% if validation.errors %}
+    <div class="alert alert-error" style="background: var(--color-warning-muted); border-left-color: var(--color-warning); color: var(--color-warning-dark); margin-bottom: var(--space-4);">
+      <strong>Validação incompleta</strong>
+      <ul style="margin: var(--space-2) 0 0; padding-left: var(--space-5);">
+        {% for alert in validation.errors %}
+        <li>{{ alert }}</li>
+        {% endfor %}
+      </ul>
+      <p style="margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-secondary);">
+        A aprovação fica bloqueada até corrigir as pendências.
+      </p>
+    </div>
+    {% elif validation.warnings %}
+    <div class="alert alert-error" style="background: var(--color-info-muted); border-left-color: var(--color-info); color: var(--color-info-dark); margin-bottom: var(--space-4);">
+      <strong>Pontos de atenção</strong>
+      <ul style="margin: var(--space-2) 0 0; padding-left: var(--space-5);">
+        {% for alert in validation.warnings %}
+        <li>{{ alert }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <form method="post" action="/atestados/{{ item.id }}/revisar">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="versao_registro" value="{{ item.revisado_em or item.criado_em }}">
+
+      <div style="margin-bottom: var(--space-5);">
+        <label for="tipo_documento" style="font-weight: var(--font-weight-semibold);">Tipo de documento</label>
+        <select
+          id="tipo_documento"
+          name="tipo_documento"
+          required
+          style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);"
+        >
+          <option value="">— Selecione —</option>
+          <option value="atestado_medico" {% if validation.document_type == 'atestado_medico' %}selected{% endif %}>Atestado Médico</option>
+          <option value="comprovante_horas" {% if validation.document_type == 'comprovante_horas' %}selected{% endif %}>Comprovante de Horas</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom: var(--space-5);">
+        <label for="nome" style="font-weight: var(--font-weight-semibold);">Nome</label>
+        <input
+          id="nome"
+          type="text"
+          name="nome"
+          value="{{ item.nome or '' }}"
+          required
+          style="width: 100%; padding: var(--space-2); border: 1px solid {% if 'Nome é obrigatório.' in validation.errors %}var(--color-error){% else %}var(--color-border){% endif %}; border-radius: var(--radius-md); font-size: var(--font-size-base);"
+        >
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-5);">
+        <div>
+          <label for="crm" style="font-weight: var(--font-weight-semibold);">CRM ou CRO</label>
+          <input
+            id="crm"
+            type="text"
+            name="crm"
+            inputmode="numeric"
+            value="{{ item.crm or '' }}"
+            placeholder="Somente números"
+            style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);"
+          >
+        </div>
+        <div>
+          <label for="crm_uf" style="font-weight: var(--font-weight-semibold);">UF do registro</label>
+          <input
+            id="crm_uf"
+            type="text"
+            name="crm_uf"
+            maxlength="2"
+            value="{{ item.crm_uf or '' }}"
+            placeholder="SP"
+            style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base); text-transform: uppercase;"
+          >
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-5);">
+        <div>
+          <label for="assinado" style="font-weight: var(--font-weight-semibold);">Documento assinado</label>
+          <select id="assinado" name="assinado" style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);">
+            <option value="" {% if item.assinado is none %}selected{% endif %}>Não foi possível determinar</option>
+            <option value="true" {% if item.assinado == 1 %}selected{% endif %}>Sim</option>
+            <option value="false" {% if item.assinado == 0 %}selected{% endif %}>Não</option>
+          </select>
+        </div>
+        <div>
+          <label for="carimbado" style="font-weight: var(--font-weight-semibold);">Documento carimbado</label>
+          <select id="carimbado" name="carimbado" style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);">
+            <option value="" {% if item.carimbado is none %}selected{% endif %}>Não foi possível determinar</option>
+            <option value="true" {% if item.carimbado == 1 %}selected{% endif %}>Sim</option>
+            <option value="false" {% if item.carimbado == 0 %}selected{% endif %}>Não</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-5);">
+        <div>
+          <label for="cpf" style="font-weight: var(--font-weight-semibold);">CPF</label>
+          <input
+            id="cpf"
+            type="text"
+            name="cpf"
+            value="{{ item.cpf or '' }}"
+            required
+            inputmode="numeric"
+            maxlength="14"
+            autocomplete="off"
+            aria-describedby="cpf-feedback"
+            style="width: 100%; padding: var(--space-2); border: 1px solid {% if 'CPF inválido ou ausente.' in validation.errors %}var(--color-error){% else %}var(--color-border){% endif %}; border-radius: var(--radius-md); font-size: var(--font-size-base);"
+          >
+          <small id="cpf-feedback" style="display: block; margin-top: 5px; color: var(--color-text-secondary);">Digite os 11 números do CPF.</small>
+        </div>
+        <div>
+          <label for="cid" style="font-weight: var(--font-weight-semibold);">CID</label>
+          <input
+            id="cid"
+            type="text"
+            name="cid"
+            value="{{ item.cid or '' }}"
+            maxlength="6"
+            autocomplete="off"
+            aria-describedby="cid-feedback"
+            style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);"
+          >
+          <small id="cid-feedback" style="display: block; margin-top: 5px; color: var(--color-text-secondary);">Exemplo: N39.0</small>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-5);">
+        <div>
+          <label for="dias_afastamento" style="font-weight: var(--font-weight-semibold);">Dias de afastamento</label>
+          <input
+            id="dias_afastamento"
+            type="number"
+            name="dias_afastamento"
+            value="{{ item.dias_afastamento or '' }}"
+            min="0"
+            style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);"
+          >
+        </div>
+        <div>
+          <label for="data_atestado" style="font-weight: var(--font-weight-semibold);">Data do documento</label>
+          <input
+            id="data_atestado"
+            type="date"
+            name="data_atestado"
+            value="{{ item.data_atestado or '' }}"
+            required
+            aria-describedby="date-feedback"
+            style="width: 100%; padding: var(--space-2); border: 1px solid {% if 'A data do documento não pode ser futura.' in validation.errors or 'Data do documento inválida.' in validation.errors %}var(--color-error){% else %}var(--color-border){% endif %}; border-radius: var(--radius-md); font-size: var(--font-size-base);"
+          >
+          <small id="date-feedback" style="display: block; margin-top: 5px; color: var(--color-text-secondary);"></small>
+        </div>
+      </div>
+
+      <div style="margin-bottom: var(--space-5);">
+        <label for="observacoes" style="font-weight: var(--font-weight-semibold);">Observações</label>
+        <textarea
+          id="observacoes"
+          name="observacoes"
+          rows="3"
+          style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base); font-family: var(--font-family);"
+        >{{ item.observacoes or '' }}</textarea>
+      </div>
+
+      <div style="margin-bottom: var(--space-5);">
+        <label for="motivo_rejeicao" style="font-weight: var(--font-weight-semibold);">Motivo da rejeição (se aplicável)</label>
+        <textarea
+          id="motivo_rejeicao"
+          name="motivo_rejeicao"
+          rows="2"
+          style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base); font-family: var(--font-family);"
+        >{{ item.motivo_rejeicao or '' }}</textarea>
+      </div>
+
+      <div style="display: flex; gap: var(--space-3); margin-bottom: var(--space-4);">
+        <button
+          type="submit"
+          name="acao"
+          value="aprovar"
+          class="btn btn-primary"
+          style="flex: 1;"
+        >
+          Aprovar e salvar
+        </button>
+        <button
+          type="submit"
+          name="acao"
+          value="rejeitar"
+          class="btn btn-danger"
+          style="flex: 1;"
+        >
+          Rejeitar
+        </button>
+        {% if user.perfil == 'admin' %}
+        <button
+          type="button"
+          class="btn btn-secondary"
+          popovertarget="confirmar-exclusao"
+        >
+          Excluir
+        </button>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal de confirmação de exclusão -->
+{% if user.perfil == 'admin' %}
+<div id="confirmar-exclusao" popover class="modal-content deletion-dialog">
+  <div class="modal-header">
+    <h2 class="modal-title">Excluir documento?</h2>
+    <button type="button" class="modal-close" popovertarget="confirmar-exclusao" popovertargetaction="hide">×</button>
+  </div>
+  <div class="modal-body">
+    <p>O registro, o arquivo salvo e a marcação de duplicidade serão removidos permanentemente.</p>
+  </div>
+  <div class="modal-footer">
+    <button
+      type="button"
+      class="btn btn-secondary"
+      popovertarget="confirmar-exclusao"
+      popovertargetaction="hide"
+    >
+      Cancelar
+    </button>
+    <form method="post" action="/atestados/{{ item.id }}/excluir" style="display: inline;">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit" class="btn btn-danger">
+        Sim, excluir
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<script src="/static/js/review-validation.js"></script>
+
+{% endblock %}

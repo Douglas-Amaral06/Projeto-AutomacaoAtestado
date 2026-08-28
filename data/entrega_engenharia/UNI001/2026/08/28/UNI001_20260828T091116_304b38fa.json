@@ -1,0 +1,43 @@
+{
+  "versao_schema": "1.0",
+  "id_documento": "UNI001_20260828T091116_304b38fa",
+  "origem": {
+    "canal": "whatsapp",
+    "id_mensagem": "messageId-HOMOLOGACAO-20260828091116",
+    "id_conversa": "5511999990000@c.us",
+    "whatsapp_remetente": "+5511999990000",
+    "whatsapp_destinatario": "+5511988887777",
+    "unidade": "UNI001",
+    "data_recebimento": "2026-08-28T09:11:16-03:00"
+  },
+  "arquivo": {
+    "nome_original": "atestado-homologacao-ficticio.pdf",
+    "nome_armazenado": "UNI001_20260828T091116_304b38fa.pdf",
+    "caminho": "/Volumes/renapsi_prd/bronze_atestados/atestado/UNI001/2026/08/28/UNI001_20260828T091116_304b38fa.pdf",
+    "extensao": "pdf",
+    "mime": "application/pdf",
+    "tamanho_bytes": 630,
+    "sha256": "304b38fab6f8201b4ba4928b00250e5f250b3f5cb8bd05f76a70801e96608468"
+  },
+  "extracao": {
+    "motor": "HOMOLOGACAO-LOCAL",
+    "versao": "1.0",
+    "data_extracao": "2026-08-28T09:11:16-03:00",
+    "confianca_geral": 1.0,
+    "campos_ausentes": [],
+    "revisao_humana": null,
+    "observacao": "Documento e dados integralmente fictícios."
+  },
+  "documento": {
+    "tipo_documento": "Atestado",
+    "cpf": "52998224725",
+    "nome_paciente": "PESSOA FICTICIA",
+    "crm": "00000",
+    "crm_uf": "SP",
+    "data_emissao": "2026-08-28",
+    "dias_afastamento": 1,
+    "cid": "Z000",
+    "assinado": true,
+    "carimbado": true
+  }
+}

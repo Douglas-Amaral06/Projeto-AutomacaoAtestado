@@ -1,0 +1,43 @@
+{
+  "versao_schema": "1.0",
+  "id_documento": "UNI001_20260821T130045_593147f2",
+  "origem": {
+    "canal": "whatsapp",
+    "id_mensagem": "wamid.SIMULADO.F023B",
+    "id_conversa": "simulado-90023@c.us",
+    "whatsapp_remetente": "+5511900000023",
+    "whatsapp_destinatario": "+5511980000000",
+    "unidade": "UNI001",
+    "data_recebimento": "2026-08-21T13:00:45-03:00"
+  },
+  "arquivo": {
+    "nome_original": "atestado-ficticio-90023.pdf",
+    "nome_armazenado": "UNI001_20260821T130045_593147f2.pdf",
+    "caminho": "/Volumes/renapsi_prd/bronze/atestados/UNI001/2026/08/21/UNI001_20260821T130045_593147f2.pdf",
+    "extensao": "pdf",
+    "mime": "application/pdf",
+    "tamanho_bytes": 635,
+    "sha256": "593147f2eeca72fc84fbd785aecee6fb9f7caf2f29842372de2443603300ece1"
+  },
+  "extracao": {
+    "motor": "SIMULATED-OCR",
+    "versao": "test-1.0",
+    "data_extracao": "2026-08-21T13:00:45-03:00",
+    "confianca_geral": 0.99,
+    "campos_ausentes": [],
+    "revisao_humana": null,
+    "observacao": "Metadados integralmente sintéticos para validação técnica."
+  },
+  "documento": {
+    "tipo_documento": "atestado_medico",
+    "cpf": "90000000023",
+    "nome_paciente": "Aprendiz Fictício 23",
+    "crm": "00023",
+    "crm_uf": "SP",
+    "data_emissao": "2026-08-20",
+    "dias_afastamento": 1,
+    "cid": "Z000",
+    "assinado": true,
+    "carimbado": true
+  }
+}

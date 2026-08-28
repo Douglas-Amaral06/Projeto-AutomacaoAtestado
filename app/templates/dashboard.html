@@ -1,5 +1,207 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atestados</title>
-<style>body{font-family:Arial;margin:0;background:#f3f5f7;color:#17202a}header{background:#075e54;color:#fff;padding:16px 28px;display:flex;justify-content:space-between;align-items:center}nav{display:flex;gap:8px;align-items:center}a,button{border:0;border-radius:6px;padding:9px 12px;text-decoration:none;cursor:pointer}nav a,nav button{background:#fff;color:#075e54}main{padding:24px 28px}.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}.stat,.card{background:#fff;border-radius:9px;padding:15px;box-shadow:0 2px 7px #0001}.card{margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}.status{font-weight:bold}.pendente{color:#a35b00}.confirmado{color:#137333}.rejeitado{color:#b3261e}.primary{background:#128c7e;color:#fff}form{display:inline;margin:0}</style></head>
-<body><header><div><strong>Recebimento de Atestados</strong><br><small>{{ user.nome }} · {{ user.perfil }}</small></div><nav><a href="/relatorios">Relatórios</a>{% if user.perfil == 'admin' %}<a href="/extensao">Conectar extensão</a><a href="/usuarios">Usuários</a><a href="/logs">Logs</a>{% endif %}<a href="/exportar.xlsx">Exportar</a><form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button>Sair</button></form></nav></header>
-<main><section class="stats">{% for item in queue %}<div class="stat"><strong>{{ item.quantidade }}</strong><br><small>Fila: {{ item.status }}</small></div>{% endfor %}<form method="post" action="/fila/retomar"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="primary">Retomar fila pausada</button></form></section>
-{% if not atestados %}<div class="card">Nenhum atestado localizado.</div>{% endif %}{% for item in atestados %}<article class="card"><div><strong>#{{ item.id }} · {{ item.nome or 'Nome não identificado' }}</strong><br><small>{{ item.data_atestado or 'Sem data' }} · {{ item.dias_afastamento or 0 }} dia(s) · confiança {{ item.confianca or '-' }}</small></div><div><span class="status {{ item.status }}">{{ item.status }}</span> <a class="primary" href="/atestados/{{ item.id }}">Revisar</a></div></article>{% endfor %}</main></body></html>
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Recebimento de Atestados{% endblock %}
+
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Dashboard</h1>
+  <p class="page-description">Visão geral do processamento de atestados</p>
+</div>
+
+<!-- Fila de Processamento -->
+{% if queue %}
+<div class="section">
+  <h2 class="section-title">Estado da fila</h2>
+  <div class="container-grid">
+    {% for item in queue %}
+    <div class="stat-card">
+      <div class="stat-card-header">
+        <div class="stat-card-kicker">Processamento</div>
+        <div class="stat-card-trend neutral">
+          <span>Fila</span>
+        </div>
+      </div>
+      <div class="stat-card-content">
+        <div class="stat-card-value">{{ item.quantidade }}</div>
+        <div class="stat-card-label">{{ item.status|upper }}</div>
+      </div>
+    </div>
+    {% endfor %}
+    <!-- Mostrar botão de retomada se houver itens com status pausado ou falha -->
+    {% set has_paused = queue|selectattr('status', 'in', ['pausado_quota', 'falhou'])|list %}
+    {% if has_paused and 'reprocess' in permissions %}
+    <div class="stat-card" style="grid-column: 1 / -1;">
+      <form method="post" action="/fila/retomar" style="width: 100%; display: flex; align-items: center; gap: var(--space-3);">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <div>
+          <div class="stat-card-label">Fila pausada</div>
+          <p style="margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-secondary);">Há {{ has_paused|length }} item(ns) aguardando retentativa</p>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-left: auto;">Retomar fila</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if failed_items and 'reprocess' in permissions %}
+<div class="section">
+  <h2 class="section-title">Extrações que precisam de atenção</h2>
+  <div class="data-table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr><th>Fila</th><th>Arquivo</th><th>Causa</th><th>Tentativas</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for failure in failed_items %}
+        <tr>
+          <td><strong>#{{ failure.id }}</strong></td>
+          <td>{{ failure.arquivo_original }}</td>
+          <td>{{ failure.mensagem }}</td>
+          <td>{{ failure.tentativas }}</td>
+          <td>
+            <form method="post" action="/fila/{{ failure.id }}/reprocessar">
+              <input type="hidden" name="csrf_token" value="{{ csrf }}">
+              <button type="submit" class="btn btn-secondary btn-sm">Reprocessar extração</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if orphan_files and user.perfil == 'admin' %}
+<div class="section">
+  <div class="alert" style="background: var(--color-warning-muted); border-left: 4px solid var(--color-warning);">
+    <strong>Arquivos órfãos detectados</strong>
+    <p style="margin: var(--space-2) 0 0;">
+      Existem {{ orphan_files|length }} arquivo(s) na pasta local sem vínculo com a fila ou com um atestado.
+      Nenhum arquivo foi apagado automaticamente.
+    </p>
+    <details style="margin-top: var(--space-2);">
+      <summary>Ver arquivos</summary>
+      <ul style="margin: var(--space-2) 0 0; padding-left: var(--space-5);">
+        {% for orphan in orphan_files %}<li>{{ orphan.name }} — {{ orphan.size }} bytes</li>{% endfor %}
+      </ul>
+    </details>
+  </div>
+</div>
+{% endif %}
+
+<!-- Listagem de Atestados -->
+<div class="section">
+  <h2 class="section-title">Atestados recebidos</h2>
+
+  {% if not atestados %}
+  <div class="data-table-wrapper">
+    <div class="empty-state">
+      <div class="empty-state-rule" aria-hidden="true"></div>
+      <h3 class="empty-state-title">Nenhum atestado encontrado</h3>
+      <p class="empty-state-description">
+        Os documentos capturados pela extensão aparecerão aqui.
+      </p>
+    </div>
+  </div>
+  {% else %}
+  <div class="data-table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Nome</th>
+          <th>Tipo</th>
+          <th>Data</th>
+          <th>Dias</th>
+          <th>Status</th>
+          <th>Confiança</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in atestados %}
+        <tr>
+          <td><strong>#{{ item.id }}</strong></td>
+          <td>{{ item.nome or '—' }}</td>
+          <td>
+            <span class="text-xs text-muted">
+              {{ item.tipo_documento or 'Sem classificação' }}
+            </span>
+          </td>
+          <td>{{ item.data_atestado|date_br }}</td>
+          <td>
+            <span class="text-center">
+              {% if item.dias_afastamento %}
+              {{ item.dias_afastamento }}
+              {% else %}
+              —
+              {% endif %}
+            </span>
+          </td>
+          <td>
+            {% set status_ui = {
+              'pendente': ('badge-pending', 'Pendente'),
+              'processando': ('badge-processing', 'Processando'),
+              'processando_manual': ('badge-processing', 'Processando (manual)'),
+              'confirmado': ('badge-success', 'Confirmado'),
+              'rejeitado': ('badge-error', 'Rejeitado'),
+              'revisado': ('badge-info', 'Revisado')
+            }.get(item.status, ('badge-neutral', item.status or 'Sem status')) %}
+            <span class="badge {{ status_ui[0] }}">
+              {{ status_ui[1] }}
+            </span>
+            {% if item.validation.errors or item.validation.warnings %}
+            <span class="badge badge-warning" title="Pendência de validação" style="margin-left: var(--space-2);">
+              Revisão
+            </span>
+            {% endif %}
+            {% if item.validation.inss_ping %}
+            <span class="badge badge-error" title="Afastamento > 15 dias" style="margin-left: var(--space-2);">
+              INSS
+            </span>
+            {% endif %}
+          </td>
+          <td>{{ item.confianca or '—' }}</td>
+          <td>
+            <a href="/atestados/{{ item.id }}" class="btn btn-ghost btn-sm">
+              Revisar
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if total_pages > 1 %}
+  <nav aria-label="Páginas do dashboard" style="display:flex;justify-content:space-between;align-items:center;margin-top:var(--space-4);">
+    {% if page > 1 %}
+    <a class="btn btn-ghost btn-sm" href="/?page={{ page - 1 }}&per_page={{ per_page }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Anterior</a>
+    {% else %}<span></span>{% endif %}
+    <span>Página {{ page }} de {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a class="btn btn-ghost btn-sm" href="/?page={{ page + 1 }}&per_page={{ per_page }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Próxima</a>
+    {% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Stub: atualmente usando formatadores inline
+  // No futuro, pode ser expandido com buscas e filtros
+  const statusLabels = {
+    pendente: 'Pendente',
+    processando: 'Processando',
+    confirmado: 'Confirmado',
+    rejeitado: 'Rejeitado'
+  };
+</script>
+{% endblock %}

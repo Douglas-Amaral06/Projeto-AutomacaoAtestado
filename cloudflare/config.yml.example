@@ -1,6 +1,0 @@
-tunnel: COLOQUE_O_ID_DO_TUNNEL
-credentials-file: C:\caminho\seguro\credenciais-do-tunnel.json
-ingress:
-  - hostname: atestados.suaempresa.com.br
-    service: http://127.0.0.1:8000
-  - service: http_status:404

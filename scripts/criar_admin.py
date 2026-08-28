@@ -9,8 +9,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import pyotp
-import qrcode
 from dotenv import load_dotenv
 
 from app.database import BASE_DIR, connect, initialize_database
@@ -46,12 +44,7 @@ def main() -> None:
         confirmation = getpass.getpass("Confirme a senha: ")
         if password != confirmation:
             raise SystemExit("As senhas nao coincidem")
-    totp_secret = pyotp.random_base32()
-    uri = pyotp.TOTP(totp_secret).provisioning_uri(username, issuer_name="RH Atestados")
-    output_dir = BASE_DIR / "data" / "onboarding"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    qr_path = output_dir / f"2fa-{username}.png"
-    qrcode.make(uri).save(qr_path)
+    totp_secret = secrets.token_urlsafe(32)
     with connect() as connection:
         connection.execute(
             "INSERT INTO usuarios(usuario,nome,senha_hash,totp_secret_encrypted,perfil) VALUES(?,?,?,?, 'admin')",
@@ -59,8 +52,7 @@ def main() -> None:
         )
     print(f"USUARIO={username}")
     print(f"SENHA={password}")
-    print(f"QR_CODE={qr_path}")
-    print("Cadastre o QR Code antes de apagar o arquivo. A senha nao foi armazenada em texto puro.")
+    print("A senha nao foi armazenada em texto puro.")
 
 
 if __name__ == "__main__":

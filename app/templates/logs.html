@@ -1,1 +1,64 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Logs</title><style>body{font-family:Arial;margin:0;background:#f3f5f7}header{background:#075e54;color:#fff;padding:16px 25px}header a{color:#fff}main{padding:20px}.log{background:#fff;border-left:5px solid #128c7e;margin-bottom:8px;padding:12px}.erro{border-color:#b3261e}.aviso{border-color:#c77800}.meta{font-size:12px;color:#667}pre{white-space:pre-wrap;font-size:12px}</style></head><body><header><a href="/">← Painel</a> · Auditoria</header><main>{% if not logs %}<div class="log">Nenhum evento.</div>{% endif %}{% for item in logs %}<section class="log {{ item.nivel }}"><div class="meta">#{{ item.id }} · {{ item.criado_em }} · {{ item.nivel }} · {{ item.evento }}</div><strong>{{ item.mensagem }}</strong>{% if item.detalhes %}<pre>{{ item.detalhes }}</pre>{% endif %}</section>{% endfor %}</main></body></html>
+{% extends "base.html" %}
+
+{% block title %}Logs - Recebimento de Atestados{% endblock %}
+
+{% block page_title %}Registro de ações{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Logs do sistema</h1>
+  <p class="page-description">Histórico de eventos e operações</p>
+</div>
+
+<div class="section">
+  <div class="data-table-wrapper">
+    {% if logs %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Horário</th>
+          <th>Nível</th>
+          <th>Evento</th>
+          <th>Mensagem</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+        <tr>
+          <td>
+            <span class="text-xs text-muted">
+              {{ log.criado_em|datetime_br }}
+            </span>
+          </td>
+          <td>
+            <span class="badge {% if log.nivel == 'info' %}badge-info{% elif log.nivel == 'aviso' %}badge-warning{% elif log.nivel == 'erro' %}badge-error{% else %}badge-neutral{% endif %}">
+              {{ log.nivel|upper }}
+            </span>
+          </td>
+          <td>
+            <code style="font-size: var(--font-size-sm); background: var(--color-bg-secondary); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm);">
+              {{ log.evento }}
+            </code>
+          </td>
+          <td>{{ log.mensagem }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-state-rule" aria-hidden="true"></div>
+      <h3 class="empty-state-title">Sem logs</h3>
+      <p class="empty-state-description">Nenhum evento registrado ainda.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+  code {
+    word-break: break-all;
+  }
+</style>
+
+{% endblock %}

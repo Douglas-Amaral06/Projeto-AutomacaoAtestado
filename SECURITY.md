@@ -3,19 +3,26 @@
 ## Controles implementados
 
 - Senhas com Argon2id, salt individual e sem armazenamento reversível.
-- 2FA TOTP obrigatório para as contas.
+- Login do painel com usuário e senha, protegido por Argon2id e limitação de tentativas.
 - Sessões aleatórias armazenadas no banco somente pelo hash SHA-256.
 - Cookies `HttpOnly`, `SameSite=Strict` e `Secure` quando HTTPS estiver ativo.
 - CSRF nas alterações do painel e queries parametrizadas contra SQL injection.
-- Bloqueio após cinco falhas de login em quinze minutos por usuário/IP.
-- Token revogável, guardado somente como hash, para a extensão.
+- Bloqueio combinado por usuário/IP e por IP global, impedindo contorno pela troca de nomes de usuário.
+- Comparação de senha com custo constante mesmo quando o usuário não existe.
+- Pareamento da extensão com código aleatório de seis dígitos, uso único e validade de dez minutos.
+- Token revogável e com validade de 90 dias, guardado no servidor somente como hash.
 - CSP, proteção contra iframe, MIME sniffing e vazamento por Referer.
-- Logs autenticados e CPF mascarado em mensagens de auditoria.
+- Logs autenticados com CPF, e-mail, tokens, senhas e chaves mascarados.
 - Exportacoes XLSX geradas somente em memoria, sem copia persistente no projeto.
+- Caminhos das fontes do pipeline somente no `.env`, sem nomes ou acessos expostos no codigo.
+- Cruzamento executado localmente, com logs apenas agregados e sem dados pessoais.
+- Escrita da planilha serializada, atomica e com identificador de idempotencia oculto.
 - `.env`, banco, anexos, backups, QR Codes e exportacoes excluidos do Git.
+- Disjuntor LGPD bloqueando chamadas ao Gemini sem aprovacao contratual explicita e regiao declarada.
+- Orçamento local do Gemini com teto por resposta, documento, tentativas, chamadas e tokens de saída diários.
 
 Use criptografia de disco corporativa (por exemplo, BitLocker) no computador que
-armazena banco, anexos e backups. O `.env` e a chave do 2FA devem permanecer
+armazena banco, anexos e backups. O `.env` e a chave interna devem permanecer
 acessiveis somente ao usuario de servico autorizado.
 
 ## Cloudflare
@@ -27,6 +34,7 @@ proteja o hostname com Cloudflare Access. Depois configure:
 ```env
 COOKIE_SECURE=true
 TRUST_CLOUDFLARE=true
+TRUSTED_PROXY_IPS=127.0.0.1,::1
 ALLOWED_HOSTS=atestados.suaempresa.com.br
 ```
 

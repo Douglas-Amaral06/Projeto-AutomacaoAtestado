@@ -1,1 +1,115 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Conectar extensão</title><style>body{font-family:Arial;margin:0;background:#f3f5f7}header{background:#075e54;color:white;padding:17px 25px}header a{color:white}main{padding:24px;max-width:850px;margin:auto}.box,table{background:white;padding:20px;border-radius:9px;box-shadow:0 2px 8px #0001;margin-bottom:18px}.code{font-size:42px;letter-spacing:9px;font-weight:bold;color:#075e54;text-align:center;padding:20px}button{padding:10px 14px;border:0;border-radius:6px;background:#128c7e;color:white}.danger{background:#b3261e}table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #ddd;text-align:left}</style></head><body><header><a href="/">← Painel</a> · Conectar extensão</header><main><section class="box"><h2>Pareamento seguro</h2><p>Gere um código e informe-o na extensão. Ele vale por 10 minutos e funciona uma única vez.</p><form method="post" action="/extensao/gerar-codigo"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button>Gerar código de 6 dígitos</button></form>{% if codigo %}<div class="code">{{ codigo }}</div>{% endif %}</section><table><thead><tr><th>Extensão</th><th>Criada em</th><th>Último uso</th><th></th></tr></thead><tbody>{% for item in tokens %}<tr><td>{{ item.nome }}</td><td>{{ item.criado_em }}</td><td>{{ item.ultimo_uso or 'Nunca' }}</td><td>{% if item.ativo %}<form method="post" action="/extensao/tokens/{{ item.id }}/revogar"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="danger">Revogar</button></form>{% else %}Revogada{% endif %}</td></tr>{% endfor %}</tbody></table></main></body></html>
+{% extends "base.html" %}
+
+{% block title %}Conectar Extensão{% endblock %}
+
+{% block page_title %}Conectar extensão Chrome{% endblock %}
+
+{% block content %}
+<div class="container-grid" style="grid-template-columns: 420px 1fr; gap: var(--space-6);">
+  <!-- Gerar código -->
+  <div class="card">
+    <h3 style="margin-top: 0;">Novo pareamento</h3>
+    <p style="font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-bottom: var(--space-4);">
+      Abra o popup da extensão Chrome e insira o código gerado abaixo.
+    </p>
+
+    {% if codigo %}
+    <div style="background: var(--color-success-light); border: 2px solid var(--color-success); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4); text-align: center;">
+      <span style="font-size: var(--font-size-xs); color: var(--color-text-secondary); text-transform: uppercase; display: block; margin-bottom: var(--space-2);">Código de pareamento</span>
+      <code style="display: block; font-size: var(--font-size-3xl); font-weight: var(--font-weight-bold); color: var(--color-success-dark); letter-spacing: var(--space-2); font-family: monospace;">{{ codigo }}</code>
+      <p style="font-size: var(--font-size-xs); color: var(--color-success-dark); margin: var(--space-3) 0 0; background: var(--color-success-muted); padding: var(--space-2); border-radius: var(--radius-sm);">
+        Válido por 10 minutos
+      </p>
+    </div>
+    {% else %}
+    <form method="post" action="/extensao/gerar-codigo">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit" class="btn btn-primary" style="width: 100%;">
+        Gerar código
+      </button>
+    </form>
+    {% endif %}
+
+    <hr style="border: none; border-top: 1px solid var(--color-border); margin: var(--space-6) 0;">
+
+    <h4 style="margin: var(--space-4) 0 var(--space-2); font-size: var(--font-size-sm); color: var(--color-text-secondary); text-transform: uppercase;">Como conectar</h4>
+    <ol style="margin: 0; padding-left: var(--space-5); font-size: var(--font-size-sm); line-height: var(--line-height-relaxed); color: var(--color-text-secondary);">
+      <li>Abra o WhatsApp Web</li>
+      <li>Clique no ícone da extensão</li>
+      <li>Insira o código acima</li>
+      <li>Clique em "Conectar extensão"</li>
+    </ol>
+  </div>
+
+  <!-- Lista de tokens -->
+  <div class="data-table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>Criado em</th>
+          <th>Último uso</th>
+          <th>Expira em</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if tokens %}
+        {% for token in tokens %}
+        <tr>
+          <td><strong>{{ token.nome }}</strong></td>
+          <td>
+            <span class="text-xs text-muted">
+              {{ token.criado_em|date_br }}
+            </span>
+          </td>
+          <td>
+            <span class="text-xs text-muted">
+              {% if token.ultimo_uso %}
+              {{ token.ultimo_uso|datetime_br }}
+              {% else %}
+              Nunca
+              {% endif %}
+            </span>
+          </td>
+          <td><span class="text-xs text-muted">{{ token.expira_em|datetime_br if token.expira_em else 'Sem expiração legada' }}</span></td>
+          <td>
+            <span class="status-indicator {% if token.ativo %}connected{% else %}disconnected{% endif %}">
+              {{ 'Ativo' if token.ativo else 'Revogado' }}
+            </span>
+          </td>
+          <td>
+            {% if token.ativo %}
+            <form method="post" action="/extensao/tokens/{{ token.id }}/revogar" style="display: inline;">
+              <input type="hidden" name="csrf_token" value="{{ csrf }}">
+              <button
+                type="submit"
+                class="btn btn-secondary btn-sm"
+              >
+                Revogar
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% else %}
+        <tr>
+          <td colspan="6">
+            <div class="empty-state" style="padding: var(--space-8) var(--space-4);">
+              <div class="empty-state-rule" aria-hidden="true"></div>
+              <h3 class="empty-state-title">Nenhuma extensão conectada</h3>
+              <p class="empty-state-description">
+                Gere um código acima para conectar a primeira extensão.
+              </p>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

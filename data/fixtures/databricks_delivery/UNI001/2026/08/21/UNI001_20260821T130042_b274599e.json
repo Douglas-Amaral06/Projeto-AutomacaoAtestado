@@ -1,0 +1,43 @@
+{
+  "versao_schema": "1.0",
+  "id_documento": "UNI001_20260821T130042_b274599e",
+  "origem": {
+    "canal": "whatsapp",
+    "id_mensagem": "wamid.SIMULADO.F022A",
+    "id_conversa": "simulado-90022@c.us",
+    "whatsapp_remetente": "+5511900000022",
+    "whatsapp_destinatario": "+5511980000000",
+    "unidade": "UNI001",
+    "data_recebimento": "2026-08-21T13:00:42-03:00"
+  },
+  "arquivo": {
+    "nome_original": "atestado-ficticio-90022.pdf",
+    "nome_armazenado": "UNI001_20260821T130042_b274599e.pdf",
+    "caminho": "/Volumes/renapsi_prd/bronze/atestados/UNI001/2026/08/21/UNI001_20260821T130042_b274599e.pdf",
+    "extensao": "pdf",
+    "mime": "application/pdf",
+    "tamanho_bytes": 635,
+    "sha256": "b274599e626d2cd210f91ba2b64c65dc819c9259011e9cf042fa8980c9c2f031"
+  },
+  "extracao": {
+    "motor": "SIMULATED-OCR",
+    "versao": "test-1.0",
+    "data_extracao": "2026-08-21T13:00:42-03:00",
+    "confianca_geral": 0.99,
+    "campos_ausentes": [],
+    "revisao_humana": null,
+    "observacao": "Metadados integralmente sintéticos para validação técnica."
+  },
+  "documento": {
+    "tipo_documento": "atestado_medico",
+    "cpf": "90000000022",
+    "nome_paciente": "Aprendiz Fictício 22",
+    "crm": "00022",
+    "crm_uf": "SP",
+    "data_emissao": "2026-08-18",
+    "dias_afastamento": 1,
+    "cid": "Z000",
+    "assinado": true,
+    "carimbado": true
+  }
+}

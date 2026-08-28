@@ -2,47 +2,476 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    body { font-family: Arial, sans-serif; width: 320px; padding: 16px; color: #17202a; }
-    h3 { margin: 0 0 8px; color: #075e54; }
-    p { font-size: 13px; line-height: 1.4; }
-    input[type="file"] { width: 100%; margin: 8px 0 12px; }
-    input[type="text"] { box-sizing: border-box; width: 100%; margin: 8px 0; padding: 10px; border: 1px solid #b8c4c8; border-radius: 6px; font-size: 20px; letter-spacing: 5px; text-align: center; }
-    button { width: 100%; padding: 10px; border: 0; border-radius: 6px; background: #128c7e; color: white; cursor: pointer; }
-    button:disabled { opacity: .5; }
-    .danger { background: #b3261e; margin-top: 8px; }
-    .monitor { display: flex; align-items: center; gap: 10px; padding: 12px; margin: 12px 0; background: #eef8f6; border-radius: 7px; }
-    .monitor input { width: 18px; height: 18px; }
-    .monitor label { font-size: 13px; font-weight: bold; }
-    hr { border: 0; border-top: 1px solid #dde3e6; margin: 16px 0; }
-    #status { margin-top: 12px; font-size: 12px; white-space: pre-wrap; }
-    a { color: #075e54; }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      width: 360px;
+      background: #f5f5f5;
+      color: #1a1a1a;
+      font-size: 14px;
+    }
+
+    .popup-container {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .popup-header {
+      background: #294238;
+      color: white;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .popup-icon {
+      width: 34px;
+      height: 34px;
+      object-fit: contain;
+    }
+
+    .popup-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .popup-subtitle {
+      font-size: 12px;
+      opacity: 0.8;
+    }
+
+    .popup-content {
+      padding: 16px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .status-section {
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .status-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+
+    .status-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .status-indicator {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .status-indicator.connected {
+      background: #107c41;
+    }
+
+    .status-indicator.disconnected {
+      background: #d32f2f;
+    }
+
+    .status-indicator.processing {
+      background: #ff9800;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .status-label {
+      font-weight: 500;
+      color: #1a1a1a;
+    }
+
+    .status-value {
+      font-size: 12px;
+      color: #666;
+    }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: #999;
+      margin: 12px 0 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .config-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      background: #fafafa;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+
+    .config-stack {
+      display: block;
+    }
+
+    .config-stack label {
+      display: block;
+      margin-bottom: 7px;
+      font-weight: 600;
+    }
+
+    .last-delivery {
+      background: #fffdf8;
+      border-left: 4px solid #c58b16;
+    }
+
+    .last-delivery strong,
+    .last-delivery span {
+      display: block;
+    }
+
+    .last-delivery span {
+      color: #666;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    button:disabled,
+    input:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .config-label {
+      color: #666;
+    }
+
+    .config-value {
+      font-weight: 500;
+      color: #1a1a1a;
+      word-break: break-all;
+    }
+
+    .input-group {
+      margin-bottom: 12px;
+    }
+
+    input[type="file"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    input[type="file"] {
+      padding: 8px;
+    }
+
+    input[type="text"]:focus,
+    select:focus {
+      outline: none;
+      border-color: #1b9e68;
+      box-shadow: 0 0 0 3px rgba(27, 158, 104, 0.1);
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px;
+      background: white;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+      margin-bottom: 12px;
+      cursor: pointer;
+    }
+
+    .checkbox-group input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: #1b9e68;
+    }
+
+    .checkbox-label {
+      flex: 1;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 150ms ease-in-out;
+      margin-bottom: 8px;
+    }
+
+    .btn-primary {
+      background: #1b9e68;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #0d6f4c;
+    }
+
+    .btn-primary:active {
+      background: #084c3a;
+    }
+
+    .btn-secondary {
+      background: white;
+      color: #1a1a1a;
+      border: 1px solid #ddd;
+    }
+
+    .btn-secondary:hover {
+      background: #f5f5f5;
+      border-color: #bbb;
+    }
+
+    .btn-danger {
+      background: #d32f2f;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #a02828;
+    }
+
+    .connection-state {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+
+    .connection-state.connected {
+      background: #d8f1dd;
+      color: #0a5a2e;
+    }
+
+    .connection-state.disconnected {
+      background: #ffebee;
+      color: #a02828;
+    }
+
+    #status {
+      padding: 12px;
+      background: white;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+      margin-bottom: 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #666;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #999;
+      margin-top: 8px;
+      line-height: 1.5;
+    }
+
+    a {
+      color: #1b9e68;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    hr {
+      border: none;
+      border-top: 1px solid #e0e0e0;
+      margin: 12px 0;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .popup-footer {
+      padding: 12px 16px;
+      border-top: 1px solid #e0e0e0;
+      background: white;
+      font-size: 12px;
+      text-align: center;
+      color: #999;
+    }
   </style>
 </head>
 <body>
-  <section id="setupArea">
-    <h3>Conectar extensão</h3>
-    <p><strong>Conexão com o sistema:</strong> <span id="connectionState">Verificando...</span></p>
-    <p>Entre no painel com login, senha e 2FA. Depois abra <a href="http://127.0.0.1:8000/extensao" target="_blank">Conectar extensão</a> e gere o código temporário.</p>
-    <input id="pairingCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000">
-    <button id="pairExtension">Conectar extensão</button>
-  </section>
-  <section id="operationalArea" hidden>
-    <h3>Processar atestado</h3>
-    <p>Monitora automaticamente novas imagens e PDFs na conversa atualmente aberta.</p>
-    <div class="monitor"><input id="monitor" type="checkbox"><label for="monitor">Monitoramento automático</label></div>
-    <p>O monitoramento continua executando depois que esta janela for fechada. Mantenha a aba do WhatsApp Web aberta.</p>
-    <button id="stopTask" class="danger">Parar tarefa</button>
-    <p><a href="http://127.0.0.1:8000/logs" target="_blank">Abrir registro de ações</a></p>
-    <div class="monitor"><input id="monitorAll" type="checkbox"><label for="monitorAll">Monitorar conversas não lidas</label></div>
-    <p id="monitorHint">Ao ativar, os anexos que já estão na tela serão ignorados. Apenas novos recebimentos serão processados.</p>
-    <button id="processLatest">Processar último anexo da conversa</button>
-    <hr>
-    <p><strong>Envio manual:</strong> baixe o atestado e selecione abaixo.</p>
-    <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp">
-    <button id="send">Enviar arquivo selecionado</button>
-  </section>
-  <div id="status"></div>
+  <div class="popup-container">
+    <div class="popup-header">
+      <img class="popup-icon" src="renapsi-logo.png" alt="Renapsi">
+      <div>
+        <div class="popup-title">Automação de Atestados</div>
+        <div class="popup-subtitle">Processamento automático</div>
+      </div>
+    </div>
+
+    <div class="popup-content">
+      <div class="section-title">Servidor</div>
+      <div class="config-item config-stack">
+        <label for="backendUrl">Endereço do backend</label>
+        <input id="backendUrl" type="url" maxlength="300" placeholder="https://atestados.empresa.com.br">
+        <button id="saveBackend" class="btn-secondary" type="button">Salvar servidor</button>
+        <p class="hint">Endereços externos exigem HTTPS. Ao trocar, será necessário parear novamente.</p>
+      </div>
+
+      <!-- Status da conexão -->
+      <div id="setupArea">
+        <div id="connectionState" class="connection-state disconnected">
+          Verificando conexão...
+        </div>
+
+        <div class="section-title">Pareamento</div>
+        <p style="font-size: 12px; color: #666; margin-bottom: 12px;">
+          Entre no painel com login e senha. Depois abra
+          <a id="pairingPageLink" href="http://127.0.0.1:8000/extensao" target="_blank">Conectar extensão</a>
+          para gerar um código.
+        </p>
+
+        <div class="input-group">
+          <input
+            id="pairingCode"
+            type="text"
+            inputmode="numeric"
+            maxlength="6"
+            placeholder="Código (6 dígitos)"
+            autocomplete="one-time-code"
+          >
+        </div>
+        <button id="pairExtension" class="btn-primary">
+          Conectar extensão
+        </button>
+      </div>
+
+      <div id="operationalArea" hidden>
+        <!-- Status -->
+        <div class="section-title">Status do sistema</div>
+        <div class="status-section">
+          <div class="status-group">
+            <span class="status-indicator disconnected" id="whatsappIndicator"></span>
+            <span class="status-label">WhatsApp</span>
+            <span class="status-value" id="whatsappStatus">Detectando...</span>
+          </div>
+          <div class="status-group">
+            <span class="status-indicator connected"></span>
+            <span class="status-label">Backend</span>
+            <span class="status-value" id="backendStatus">Conectado</span>
+          </div>
+        </div>
+
+        <!-- Configuração -->
+        <div class="section-title">Configuração</div>
+        <div class="config-item config-stack">
+          <label for="configUnit">Unidade responsável</label>
+          <input id="configUnit" type="text" maxlength="30" placeholder="Ex.: UNI001">
+          <p class="hint">A unidade será enviada junto com cada novo atestado.</p>
+        </div>
+
+        <div class="section-title">Último atestado enviado</div>
+        <div class="config-item last-delivery" id="lastDelivery">
+          <strong>Nenhum envio registrado</strong>
+          <span>O resumo aparecerá aqui após o primeiro processamento.</span>
+        </div>
+
+        <!-- Monitoramento -->
+        <div class="section-title">Monitoramento</div>
+        <div class="checkbox-group">
+          <input id="monitor" type="checkbox">
+          <label for="monitor" class="checkbox-label">
+            Monitorar conversa aberta
+          </label>
+        </div>
+        <p class="hint">
+          Monitora automaticamente anexos na conversa ativa. Continua rodando mesmo com o popup fechado.
+        </p>
+
+        <div class="checkbox-group">
+          <input id="monitorAll" type="checkbox">
+          <label for="monitorAll" class="checkbox-label">
+            Monitorar não lidas
+          </label>
+        </div>
+        <p class="hint" id="monitorHint">
+          Verifica automaticamente conversas com mensagens não lidas e processa anexos recentes.
+        </p>
+
+        <!-- Ações -->
+        <button id="processLatest" class="btn-secondary">
+          Processar último anexo
+        </button>
+        <button id="stopTask" class="btn-danger">
+          Parar tarefa
+        </button>
+
+        <hr>
+
+        <!-- Upload manual -->
+        <div class="section-title">Envio manual</div>
+        <div class="input-group">
+          <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp">
+        </div>
+        <button id="send" class="btn-primary">
+          Enviar arquivo
+        </button>
+
+        <!-- Status -->
+        <div id="status"></div>
+
+        <!-- Links -->
+        <div style="margin-top: 12px; text-align: center;">
+          <a id="logsPageLink" href="http://127.0.0.1:8000/logs" target="_blank">
+            Abrir registro de ações
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <div class="popup-footer">
+      Versão 1.4.0 | Sistema seguro
+    </div>
+  </div>
+
+  <script src="backend-config.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

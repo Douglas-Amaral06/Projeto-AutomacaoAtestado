@@ -12,4 +12,6 @@ data/uploads/*
 backups/*.zip
 .restore-temp/
 data/onboarding/*
+data/homologacao_fake/*
 .audit-*/
+.spreadsheet-work/

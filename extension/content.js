@@ -9,6 +9,8 @@ let lastReportedStatus = "";
 const seenMessages = new Set();
 const pendingMessages = new Set();
 const unreadCounts = new WeakMap();
+const chatsMarkedUnreadThisRun = new Set();
+const CHAT_INSPECTION_DELAY_MS = 10000;
 
 function ensureStatusPanel() {
   let panel = document.getElementById("atestados-monitor-status");
@@ -37,7 +39,7 @@ function reportStatus(message, error = false, evento = "monitoramento", detalhes
 
 function messageKey(container, media) {
   const dataId = container.getAttribute("data-id");
-  if (dataId) return dataId;
+  if (dataId) return `${dataId}|${mediaUrl(media)}`;
   const metadata = container.querySelector("[data-pre-plain-text]")?.getAttribute("data-pre-plain-text");
   return metadata ? `${metadata}|${media.src || media.href}` : media.src || media.href;
 }
@@ -53,16 +55,26 @@ function currentConversationIdentity() {
 
 function isIncomingMessage(container) {
   if (container.closest(".message-out")) return false;
-  return Boolean(container.closest(".message-in") || container.classList.contains("message-in"));
+  if (container.closest(".message-in") || container.classList.contains("message-in")) return true;
+  // O WhatsApp altera essas classes com frequencia. Elementos sem direcao
+  // conhecida dentro da area de mensagens sao tratados como recebidos.
+  return Boolean(container.closest("#main, main"));
 }
 
-function findMessageContainers(root = document) {
+function findMessageContainers(root = document, includeOutgoing = false) {
   const containers = new Set();
-  if (root.nodeType === Node.ELEMENT_NODE && root.matches?.(".message-in, [data-testid='msg-container']")) {
+  if (root.nodeType === Node.ELEMENT_NODE && root.matches?.(".message-in, .message-out, [data-testid='msg-container']")) {
     containers.add(root);
   }
-  root.querySelectorAll?.(".message-in, [data-testid='msg-container']").forEach((item) => containers.add(item));
-  return [...containers].filter(isIncomingMessage);
+  root.querySelectorAll?.(".message-in, .message-out, [data-testid='msg-container']").forEach((item) => containers.add(item));
+  // Fallback para versoes que removeram message-in/msg-container.
+  const mediaRoot = root === document ? (document.querySelector("#main") || document.querySelector("main")) : root;
+  mediaRoot?.querySelectorAll?.("img[src], a[href]").forEach((media) => {
+    if (!isConversationMedia(media)) return;
+    const container = media.closest(".message-in, .message-out, [data-id], [role='row']");
+    if (container) containers.add(container);
+  });
+  return includeOutgoing ? [...containers] : [...containers].filter(isIncomingMessage);
 }
 
 function mediaUrl(element) {
@@ -72,24 +84,30 @@ function mediaUrl(element) {
 function isConversationMedia(element) {
   if (element.closest("header, footer")) return false;
   const url = mediaUrl(element);
-  if (!url || (!url.startsWith("blob:") && !url.startsWith("data:image/"))) return false;
+  if (!url || url.startsWith("data:image/svg")) return false;
   if (element.tagName === "IMG") {
     const rectangle = element.getBoundingClientRect();
     const width = element.naturalWidth || element.width || rectangle.width;
     const height = element.naturalHeight || element.height || rectangle.height;
-    return width >= 120 && height >= 120 && rectangle.width >= 80 && rectangle.height >= 80;
+    return width >= 120 && height >= 120 && rectangle.width >= 80 && rectangle.height >= 80
+      && rectangle.bottom > 0 && rectangle.right > 0;
   }
-  return true;
+  const label = `${element.getAttribute("download") || ""} ${element.getAttribute("aria-label") || ""}`;
+  return url.startsWith("blob:") || /\.pdf(?:$|\?)/i.test(url) || /pdf|documento|document/i.test(label);
 }
 
-function findSupportedMedia(container) {
+function findSupportedMediaItems(container) {
   const candidates = [...container.querySelectorAll("img[src], a[href]")];
-  return candidates.find((element) => {
+  return candidates.filter((element) => {
     if (!isConversationMedia(element)) return false;
     if (element.tagName === "IMG") return true;
     const filename = element.getAttribute("download") || "";
     return /\.pdf$/i.test(filename) || filename === "";
   });
+}
+
+function findSupportedMedia(container) {
+  return findSupportedMediaItems(container)[0];
 }
 
 function findAllConversationMedia() {
@@ -105,6 +123,25 @@ function bytesToBase64(bytes) {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
   }
   return btoa(binary);
+}
+
+function messageId(container) {
+  return container.getAttribute("data-id")
+    || container.closest?.("[data-id]")?.getAttribute("data-id")
+    || null;
+}
+
+function buildAttachmentPayload({ bytes, blob, filename, container, key }) {
+  // Campos de WhatsApp (remetente/destinatario) serao incluidos em uma etapa
+  // futura, quando houver uma fonte confiavel para esses dados.
+  return {
+    arquivo: bytesToBase64(bytes),
+    nome_arquivo: filename,
+    tipo_arquivo: blob.type,
+    id_mensagem: messageId(container),
+    data_recebimento: new Date().toISOString(),
+    key,
+  };
 }
 
 async function processContainer(container, force = false, selectedMedia = null) {
@@ -134,10 +171,20 @@ async function processContainer(container, force = false, selectedMedia = null) 
     const filename = media.getAttribute("download")
       || `atestado-${Date.now()}.${blob.type === "application/pdf" ? "pdf" : blob.type.split("/")[1] || "jpg"}`;
     const bytes = new Uint8Array(await blob.arrayBuffer());
+    const payload = buildAttachmentPayload({ bytes, blob, filename, container, key });
+
+    // Nao registra o conteudo do arquivo: apenas os metadados necessarios para
+    // validar a estrutura de captura.
+    console.info("[Atestado] Payload preparado:", {
+      nome_arquivo: payload.nome_arquivo,
+      tipo_arquivo: payload.tipo_arquivo,
+      id_mensagem: payload.id_mensagem,
+      data_recebimento: payload.data_recebimento,
+    });
 
     const result = await chrome.runtime.sendMessage({
       type: "UPLOAD_ATTACHMENT",
-      payload: { base64: bytesToBase64(bytes), mimeType: blob.type, filename, key }
+      payload
     });
     if (!result?.ok) {
       if (result?.quotaExceeded) {
@@ -192,15 +239,50 @@ function processLatestAttachment() {
   };
 }
 
-async function processUnreadAttachments(unreadCount = 1) {
+function isSelfConversation(identity) {
+  return /(^|\s)(voc[eê]|you)(\s|$)/i.test(identity || "");
+}
+
+async function processUnreadAttachments(unreadCount = 1, includeOutgoing = false) {
   const items = [];
-  const containers = findMessageContainers();
+  const mediaSeen = new Set();
+  const containers = findMessageContainers(document, includeOutgoing);
   containers.slice(-Math.min(Math.max(unreadCount, 1), 20)).forEach((container) => {
-    const media = findSupportedMedia(container);
-    if (media) items.push({ container, media });
+    findSupportedMediaItems(container).forEach((media) => {
+      if (!mediaSeen.has(media)) items.push({ container, media });
+      mediaSeen.add(media);
+    });
   });
-  for (const item of items) await processContainer(item.container, true, item.media);
-  return items.length;
+  // Ultimo recurso: usa as midias grandes visiveis diretamente no painel do
+  // chat. Isso cobre o DOM atual que nao expoe mais um container por mensagem.
+  if (!items.length) {
+    const visibleMedia = findAllConversationMedia().filter((media) => {
+      return includeOutgoing || !media.closest(".message-out");
+    });
+    visibleMedia.slice(-Math.min(Math.max(unreadCount, 1), 5)).forEach((media) => {
+      const container = media.closest(".message-in, .message-out, [data-id], [role='row']") || media.parentElement;
+      if (container && !mediaSeen.has(media)) items.push({ container, media });
+      mediaSeen.add(media);
+    });
+  }
+  const results = [];
+  for (const item of items) results.push(await processContainer(item.container, true, item.media));
+  return {
+    found: items.length,
+    hasAttestation: results.some((result) => result?.ok && result.status !== "ignorado"),
+    failed: results.some((result) => result && !result.ok),
+  };
+}
+
+function attachmentDiagnostics(includeOutgoing = false) {
+  const main = document.querySelector("#main") || document.querySelector("main");
+  const images = [...(main?.querySelectorAll("img[src]") || [])];
+  const media = findAllConversationMedia().filter((item) => includeOutgoing || !item.closest(".message-out"));
+  const schemes = [...new Set(media.map((item) => {
+    const url = mediaUrl(item);
+    return url.includes(":") ? url.split(":", 1)[0] : "sem-esquema";
+  }))];
+  return { imagens_no_chat: images.length, midias_compativeis: media.length, containers: findMessageContainers(document, includeOutgoing).length, esquemas: schemes };
 }
 
 function baselineVisibleMessages() {
@@ -321,6 +403,32 @@ async function clickChatRow(row, conversation) {
   return chrome.runtime.sendMessage({ type: "TRUSTED_CLICK", x, y, conversation });
 }
 
+async function markChatAsUnread(conversation, runId) {
+  if (!allChatsTimer || runId !== allChatsRunId) return false;
+  const row = findChatRowByName(conversation);
+  if (!row) return false;
+  row.scrollIntoView({ block: "center", inline: "nearest" });
+  const rectangle = row.getBoundingClientRect();
+  const x = Math.round(rectangle.left + Math.min(rectangle.width * 0.55, rectangle.width - 20));
+  const y = Math.round(rectangle.top + rectangle.height / 2);
+  const opened = await chrome.runtime.sendMessage({ type: "TRUSTED_CONTEXT_CLICK", x, y, conversation });
+  if (!opened?.ok) return false;
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const menuItem = [...document.querySelectorAll("[role='menuitem'], [data-testid*='menuitem']")].find((item) => {
+    const text = `${item.textContent || ""} ${item.getAttribute("aria-label") || ""}`;
+    return /marcar como n\u00e3o lida|mark as unread/i.test(text);
+  });
+  if (!menuItem) return false;
+  const menuRectangle = menuItem.getBoundingClientRect();
+  const clicked = await chrome.runtime.sendMessage({
+    type: "TRUSTED_CLICK",
+    x: Math.round(menuRectangle.left + menuRectangle.width / 2),
+    y: Math.round(menuRectangle.top + menuRectangle.height / 2),
+    conversation,
+  });
+  return Boolean(clicked?.ok);
+}
+
 function waitForConversation(conversation, previousIdentity, hadMain, timeout = 10000) {
   return new Promise((resolve) => {
     const startedAt = Date.now();
@@ -341,19 +449,16 @@ function waitForConversation(conversation, previousIdentity, hadMain, timeout = 
   });
 }
 
-function waitForMedia(timeout = 6000) {
-  return new Promise((resolve) => {
-    const startedAt = Date.now();
-    const timer = setInterval(() => {
-      if (findAllConversationMedia().length) {
-        clearInterval(timer);
-        resolve(true);
-      } else if (Date.now() - startedAt >= timeout) {
-        clearInterval(timer);
-        resolve(false);
-      }
-    }, 300);
-  });
+async function waitForChatInspection(identity, runId) {
+  reportStatus(`Conversa aberta. Aguardando 10 segundos para carregar fotos e documentos...`, false, "aguardando_anexos", { conversa: identity, aguarde_segundos: 10 });
+  const steps = CHAT_INSPECTION_DELAY_MS / 500;
+  for (let step = 0; step < steps; step += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (!allChatsTimer || runId !== allChatsRunId) return false;
+    const current = currentConversationIdentity();
+    if (current && identity && current !== identity) return false;
+  }
+  return true;
 }
 
 async function scanUnreadChats() {
@@ -361,7 +466,7 @@ async function scanUnreadChats() {
   const queue = unreadChatRows().map((row) => ({
     name: chatRowName(row),
     unreadCount: unreadCounts.get(row) || 1,
-  }));
+  })).filter((item) => !chatsMarkedUnreadThisRun.has(item.name));
   if (!queue.length) {
     reportStatus("Verificacao finalizada: nenhuma conversa nao lida pendente.");
     return;
@@ -393,15 +498,29 @@ async function scanUnreadChats() {
         reportStatus(`Falha ao abrir ${rowName}. Seguindo para a proxima.`, true, "conversa_nao_aberta", { conversa: rowName });
         continue;
       }
-      reportStatus(`Conversa aberta: ${openedIdentity}. Procurando anexos...`, false, "conversa_aberta", { conversa: openedIdentity });
-      const hasMedia = await waitForMedia();
+      reportStatus(`Conversa aberta: ${openedIdentity}. Preparando inspecao detalhada...`, false, "conversa_aberta", { conversa: openedIdentity });
+      const ready = await waitForChatInspection(openedIdentity, runId);
       if (!allChatsTimer || runId !== allChatsRunId) break;
-      if (!hasMedia) {
-        reportStatus(`Nenhum anexo em ${openedIdentity}. Seguindo para a proxima.`, false, "sem_anexo", { conversa: openedIdentity });
+      if (!ready) {
+        reportStatus(`A conversa mudou durante a espera. Seguindo para a proxima.`, true, "conversa_mudou_durante_inspecao", { conversa: openedIdentity });
         continue;
       }
-      const processed = await processUnreadAttachments(unreadCount);
-      reportStatus(`${processed} anexo(s) nao lido(s) verificado(s) em ${openedIdentity}.`, false, "anexos_verificados", { conversa: openedIdentity, quantidade: processed, mensagens_nao_lidas: unreadCount });
+      reportStatus(`Analisando fotos e documentos recentes em ${openedIdentity}...`, false, "analisando_anexos", { conversa: openedIdentity });
+      const processed = await processUnreadAttachments(unreadCount, isSelfConversation(openedIdentity));
+      if (!processed.found) {
+        const diagnostico = attachmentDiagnostics(isSelfConversation(openedIdentity));
+        const marked = await markChatAsUnread(rowName, runId);
+        if (marked) chatsMarkedUnreadThisRun.add(rowName);
+        reportStatus(`Nenhuma foto ou documento recente em ${openedIdentity}.${marked ? " Conversa marcada como nao lida." : ""} Seguindo para a proxima.`, !marked, marked ? "conversa_marcada_nao_lida" : "marcacao_nao_lida_falhou", { conversa: openedIdentity, diagnostico });
+        continue;
+      }
+      if (!processed.hasAttestation && !processed.failed) {
+        const marked = await markChatAsUnread(rowName, runId);
+        if (marked) chatsMarkedUnreadThisRun.add(rowName);
+        reportStatus(`${processed.found} anexo(s) verificado(s) em ${openedIdentity}; nenhum atestado identificado.${marked ? " Conversa marcada como nao lida." : ""}`, !marked, marked ? "conversa_marcada_nao_lida" : "marcacao_nao_lida_falhou", { conversa: openedIdentity, quantidade: processed.found });
+        continue;
+      }
+      reportStatus(`${processed.found} anexo(s) nao lido(s) verificado(s) em ${openedIdentity}.`, false, "anexos_verificados", { conversa: openedIdentity, quantidade: processed.found, mensagens_nao_lidas: unreadCount });
     }
     if (allChatsTimer && runId === allChatsRunId) reportStatus("Fila finalizada. Aguardando novas mensagens nao lidas.", false, "fila_finalizada");
   } catch (error) {
@@ -414,6 +533,7 @@ async function scanUnreadChats() {
 function startAllChatsMonitoring() {
   stopMonitoring();
   if (allChatsTimer) clearInterval(allChatsTimer);
+  chatsMarkedUnreadThisRun.clear();
   allChatsRunId += 1;
   allChatsTimer = setInterval(scanUnreadChats, 8000);
   reportStatus("Tarefa inicializando: procurando conversas nao lidas...");
@@ -425,6 +545,7 @@ function stopAllChatsMonitoring() {
   if (allChatsTimer) clearInterval(allChatsTimer);
   allChatsTimer = null;
   allChatsBusy = false;
+  chatsMarkedUnreadThisRun.clear();
   reportStatus("Monitoramento geral pausado.");
 }
 

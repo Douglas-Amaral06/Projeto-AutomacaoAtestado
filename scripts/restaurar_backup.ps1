@@ -10,12 +10,14 @@ if (-not $resolvedBackup.StartsWith($backupRoot, [System.StringComparison]::Ordi
     throw "Por seguranca, selecione um backup dentro da pasta backups."
 }
 Set-Location -LiteralPath $projectRoot
-& ".\.venv\Scripts\python.exe" -c "from pathlib import Path; from app.maintenance import verify_backup; verify_backup(Path(r'$resolvedBackup'))"
-if ($LASTEXITCODE -ne 0) { throw "Backup invalido." }
-if (Test-Path -LiteralPath "data\atestados.db") { & (Join-Path $PSScriptRoot "backup.ps1") }
 $restoreTemp = Join-Path $projectRoot ".restore-temp"
 if (Test-Path -LiteralPath $restoreTemp) { Remove-Item -LiteralPath $restoreTemp -Recurse -Force }
-Expand-Archive -LiteralPath $resolvedBackup -DestinationPath $restoreTemp
+& ".\.venv\Scripts\python.exe" -c "import sys; from pathlib import Path; from app.maintenance import extract_verified_backup; extract_verified_backup(Path(sys.argv[1]), Path(sys.argv[2]))" $resolvedBackup $restoreTemp
+if ($LASTEXITCODE -ne 0) {
+    if (Test-Path -LiteralPath $restoreTemp) { Remove-Item -LiteralPath $restoreTemp -Recurse -Force }
+    throw "Backup invalido ou inseguro. Nenhum dado atual foi substituido."
+}
+if (Test-Path -LiteralPath "data\atestados.db") { & (Join-Path $PSScriptRoot "backup.ps1") }
 Copy-Item -LiteralPath (Join-Path $restoreTemp "data\atestados.db") -Destination (Join-Path $projectRoot "data\atestados.db") -Force
 Get-ChildItem -LiteralPath (Join-Path $restoreTemp "data\uploads") -File -ErrorAction SilentlyContinue | Copy-Item -Destination (Join-Path $projectRoot "data\uploads") -Force
 Remove-Item -LiteralPath $restoreTemp -Recurse -Force

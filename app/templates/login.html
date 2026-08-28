@@ -1,1 +1,179 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Login RH</title><style>body{font-family:Arial;background:#eef3f2;display:grid;place-items:center;height:100vh;margin:0}.box{background:#fff;padding:28px;width:340px;border-radius:12px;box-shadow:0 5px 25px #0002}h2{color:#075e54}label{display:block;margin:12px 0}input{box-sizing:border-box;width:100%;padding:11px;border:1px solid #bbc;border-radius:6px}button{width:100%;padding:12px;background:#128c7e;color:#fff;border:0;border-radius:6px}.erro{color:#b3261e}</style></head><body><form class="box" method="post" action="/login"><h2>Acesso ao RH</h2>{% if erro %}<p class="erro">{{ erro }}</p>{% endif %}<label>Usuário<input name="usuario" required autocomplete="username"></label><label>Senha<input type="password" name="senha" required autocomplete="current-password"></label><label>Código 2FA<input name="codigo_2fa" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label><button>Entrar</button></form></body></html>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login - Recebimento de Atestados</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/design-system.css') }}">
+  <style>
+    body {
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
+      padding: var(--space-4);
+    }
+
+    .login-container {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      padding: var(--space-8);
+      width: 100%;
+      max-width: 420px;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .login-header {
+      text-align: center;
+      margin-bottom: var(--space-8);
+    }
+
+    .login-logo {
+      display: block;
+      width: 82px;
+      height: 82px;
+      object-fit: contain;
+      margin: 0 auto var(--space-4);
+    }
+
+    .login-title {
+      font-size: var(--font-size-2xl);
+      font-weight: var(--font-weight-bold);
+      color: var(--color-primary);
+      margin: 0 0 var(--space-2) 0;
+    }
+
+    .login-subtitle {
+      font-size: var(--font-size-sm);
+      color: var(--color-text-secondary);
+      margin: 0;
+    }
+
+    .form-group {
+      margin-bottom: var(--space-5);
+    }
+
+    label {
+      display: block;
+      margin-bottom: var(--space-2);
+      font-weight: var(--font-weight-medium);
+      color: var(--color-text-primary);
+      font-size: var(--font-size-base);
+    }
+
+    input {
+      box-sizing: border-box;
+      width: 100%;
+      padding: var(--space-3);
+      font-size: var(--font-size-base);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      color: var(--color-text-primary);
+      transition: all var(--transition-fast);
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--color-primary-light);
+      box-shadow: 0 0 0 3px rgba(27, 158, 104, 0.1);
+    }
+
+    .alert-error {
+      background: var(--color-error-light);
+      border: 1px solid var(--color-error);
+      border-left: 4px solid var(--color-error);
+      color: var(--color-error-dark);
+      padding: var(--space-4);
+      border-radius: var(--radius-md);
+      margin-bottom: var(--space-5);
+      font-size: var(--font-size-sm);
+    }
+
+    .btn-login {
+      width: 100%;
+      padding: var(--space-3);
+      background: var(--color-primary-light);
+      color: white;
+      font-size: var(--font-size-base);
+      font-weight: var(--font-weight-semibold);
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .btn-login:hover {
+      background: var(--color-primary);
+      box-shadow: var(--shadow-md);
+    }
+
+    .btn-login:active {
+      background: var(--color-primary-dark);
+    }
+
+    .login-footer {
+      text-align: center;
+      margin-top: var(--space-6);
+      font-size: var(--font-size-sm);
+      color: var(--color-text-secondary);
+    }
+
+    @media (max-width: 640px) {
+      .login-container {
+        padding: var(--space-6);
+      }
+
+      .login-title {
+        font-size: var(--font-size-xl);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-header">
+      <img class="login-logo" src="{{ url_for('static', path='/img/renapsi-logo.png') }}" alt="Renapsi">
+      <h1 class="login-title">Atestados RH</h1>
+      <p class="login-subtitle">Sistema de recebimento e processamento</p>
+    </div>
+
+    {% if erro %}
+    <div class="alert-error">{{ erro }}</div>
+    {% endif %}
+
+    <form method="post" action="/login">
+      <div class="form-group">
+        <label for="usuario">Usuário</label>
+        <input
+          id="usuario"
+          type="text"
+          name="usuario"
+          required
+          autocomplete="username"
+          autofocus
+        >
+      </div>
+
+      <div class="form-group">
+        <label for="senha">Senha</label>
+        <input
+          id="senha"
+          type="password"
+          name="senha"
+          required
+          autocomplete="current-password"
+        >
+      </div>
+
+      <button type="submit" class="btn-login">Entrar</button>
+    </form>
+
+    <div class="login-footer">
+      <p>Sistema seguro e protegido por criptografia</p>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', path='/js/ui.js') }}"></script>
+</body>
+</html>

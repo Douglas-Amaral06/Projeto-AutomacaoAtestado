@@ -1,1 +1,129 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Usuários</title><style>body{font-family:Arial;margin:0;background:#f3f5f7}header{background:#075e54;color:#fff;padding:17px 25px}header a{color:#fff}main{padding:22px;display:grid;grid-template-columns:360px 1fr;gap:18px}.box,table{background:#fff;padding:18px;border-radius:9px;box-shadow:0 2px 7px #0001}label{display:block;margin:10px 0}input,select{box-sizing:border-box;width:100%;padding:9px}button{padding:9px;background:#128c7e;color:#fff;border:0;border-radius:5px}table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #ddd;text-align:left}.secret{word-break:break-all;background:#fff4d6;padding:12px;border:2px solid #c77800}.protected{color:#68737a;font-size:12px;font-weight:bold}@media(max-width:850px){main{grid-template-columns:1fr}}</style></head><body><header><a href="/">← Painel</a> · Administração de usuários</header><main><section class="box"><h3>Novo usuário</h3>{% if provisioning_uri %}<div class="secret"><strong>Cadastre agora no autenticador:</strong><br>{{ provisioning_uri }}<br><small>Esta informação não será exibida novamente.</small></div>{% endif %}<form method="post" action="/usuarios"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label>Usuário<input name="usuario" required></label><label>Nome<input name="nome" required></label><label>Senha inicial<input type="password" name="senha" minlength="12" required></label><label>Perfil<select name="perfil"><option value="analista">Analista</option><option value="admin">Administrador</option></select></label><button>Criar com 2FA</button></form></section><table><thead><tr><th>Nome</th><th>Usuário</th><th>Perfil</th><th>Ativo</th><th></th></tr></thead><tbody>{% for item in usuarios %}<tr><td>{{ item.nome }}</td><td>{{ item.usuario }}</td><td>{{ item.perfil }}</td><td>{{ 'Sim' if item.ativo else 'Não' }}</td><td>{% if item.id == user.id %}<span class="protected">Conta atual protegida</span>{% else %}<form method="post" action="/usuarios/{{ item.id }}/alternar"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button>Ativar/Desativar</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></main></body></html>
+{% extends "base.html" %}
+
+{% block title %}Administração de Usuários{% endblock %}
+
+{% block page_title %}Administração de usuários{% endblock %}
+
+{% block content %}
+<div class="container-grid" style="grid-template-columns: 380px 1fr; gap: var(--space-6);">
+  <!-- Criar novo usuário -->
+  <div class="card">
+    <h3 style="margin-top: 0;">Novo usuário</h3>
+
+    <form method="post" action="/usuarios">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+
+      <div style="margin-bottom: var(--space-4);">
+        <label for="usuario" style="font-weight: var(--font-weight-semibold);">Usuário</label>
+        <input
+          id="usuario"
+          type="text"
+          name="usuario"
+          required
+          style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);"
+        >
+      </div>
+
+      <div style="margin-bottom: var(--space-4);">
+        <label for="nome" style="font-weight: var(--font-weight-semibold);">Nome completo</label>
+        <input
+          id="nome"
+          type="text"
+          name="nome"
+          required
+          style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);"
+        >
+      </div>
+
+      <div style="margin-bottom: var(--space-4);">
+        <label for="senha" style="font-weight: var(--font-weight-semibold);">Senha inicial (mín. 12 caracteres)</label>
+        <input
+          id="senha"
+          type="password"
+          name="senha"
+          required
+          minlength="12"
+          style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);"
+        >
+      </div>
+
+      <div style="margin-bottom: var(--space-4);">
+        <label for="perfil" style="font-weight: var(--font-weight-semibold);">Perfil</label>
+        <select
+          id="perfil"
+          name="perfil"
+          style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);"
+        >
+          <option value="analista">Analista</option>
+          <option value="admin">Administrador</option>
+        </select>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="width: 100%;">
+        Criar usuário
+      </button>
+    </form>
+  </div>
+
+  <!-- Lista de usuários -->
+  <div class="data-table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>Usuário</th>
+          <th>Perfil</th>
+          <th>Status</th>
+          <th>Última atividade</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in usuarios %}
+        <tr>
+          <td><strong>{{ item.nome }}</strong></td>
+          <td><code style="font-size: var(--font-size-sm); background: var(--color-bg-secondary); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm);">{{ item.usuario }}</code></td>
+          <td>
+            <span class="badge {% if item.perfil == 'admin' %}badge-error{% else %}badge-info{% endif %}">
+              {{ item.perfil|upper }}
+            </span>
+          </td>
+          <td>
+            <span class="status-indicator {% if item.ativo %}connected{% else %}disconnected{% endif %}">
+              {{ 'Ativo' if item.ativo else 'Inativo' }}
+            </span>
+          </td>
+          <td>
+            <span class="text-xs text-muted">
+              {% if item.ultimo_login %}
+              {{ item.ultimo_login|datetime_br }}
+              {% else %}
+              Nunca
+              {% endif %}
+            </span>
+          </td>
+          <td>
+            {% if item.id == user.id %}
+            <span class="text-xs" style="color: var(--color-text-tertiary); font-weight: var(--font-weight-semibold);">
+              Conta atual
+            </span>
+            {% else %}
+            <form method="post" action="/usuarios/{{ item.id }}/alternar" style="display: inline;">
+              <input type="hidden" name="csrf_token" value="{{ csrf }}">
+              <button
+                type="submit"
+                class="btn btn-secondary btn-sm"
+              >
+                {% if item.ativo %}Desativar{% else %}Ativar{% endif %}
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
