@@ -445,13 +445,23 @@
 
         <hr>
 
-        <!-- Upload manual -->
-        <div class="section-title">Envio manual</div>
+        <!-- Simulador independente do WhatsApp -->
+        <div class="section-title">Simulação sem WhatsApp</div>
+        <div class="config-item config-stack">
+          <strong>Recebimento fictício</strong>
+          <p class="hint">
+            Envia o documento pelo mesmo token, pela mesma fila e pela mesma extração
+            usados no fluxo real. Nenhuma conversa do WhatsApp é acessada.
+          </p>
+        </div>
         <div class="input-group">
-          <input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/webp">
+          <input id="file" type="file" accept="application/pdf,image/jpeg,image/png">
         </div>
         <button id="send" class="btn-primary">
-          Enviar arquivo
+          Simular recebimento e extrair
+        </button>
+        <button id="openPresentation" class="btn-secondary" type="button">
+          Abrir tela de apresentação
         </button>
 
         <!-- Status -->
@@ -467,7 +477,7 @@
     </div>
 
     <div class="popup-footer">
-      Versão 1.4.0 | Sistema seguro
+      Versão 1.5.0 | Sistema seguro
     </div>
   </div>
 

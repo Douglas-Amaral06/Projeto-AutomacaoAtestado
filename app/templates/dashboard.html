@@ -97,6 +97,15 @@
 <!-- Listagem de Atestados -->
 <div class="section">
   <h2 class="section-title">Atestados recebidos</h2>
+  <form method="get" action="/" style="display:flex;gap:var(--space-3);align-items:end;margin-bottom:var(--space-4);max-width:760px;">
+    <div style="flex:1;">
+      <label for="id-documento-search" style="font-weight:var(--font-weight-semibold);">Pesquisar ID do Databricks</label>
+      <input id="id-documento-search" name="q" value="{{ search_query }}" placeholder="Ex.: UNI001_20260828T091116_304b38fa" maxlength="120">
+    </div>
+    {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+    <button class="btn btn-secondary" type="submit">Pesquisar</button>
+    {% if search_query %}<a class="btn btn-ghost" href="/{% if status_filter %}?status={{ status_filter }}{% endif %}">Limpar</a>{% endif %}
+  </form>
 
   {% if not atestados %}
   <div class="data-table-wrapper">
@@ -119,6 +128,8 @@
           <th>Data</th>
           <th>Dias</th>
           <th>Status</th>
+          <th>Entrega</th>
+          <th>Operador</th>
           <th>Confiança</th>
           <th></th>
         </tr>
@@ -166,6 +177,18 @@
             </span>
             {% endif %}
           </td>
+          <td>
+            {% set delivery_ui = {
+              'entregue_volume': ('badge-success', 'No Volume'),
+              'simulado_local': ('badge-info', 'Simulação local'),
+              'desabilitada': ('badge-neutral', 'Não enviado')
+            }.get(item.status_entrega, ('badge-warning', 'Sem confirmação')) %}
+            <span class="badge {{ delivery_ui[0] }}">{{ delivery_ui[1] }}</span>
+            {% if item.id_documento %}
+            <code title="{{ item.id_documento }}" style="display:block;margin-top:var(--space-2);max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ item.id_documento }}</code>
+            {% endif %}
+          </td>
+          <td>{{ item.operador_envio_nome or 'Não identificado' }}</td>
           <td>{{ item.confianca or '—' }}</td>
           <td>
             <a href="/atestados/{{ item.id }}" class="btn btn-ghost btn-sm">
@@ -180,11 +203,11 @@
   {% if total_pages > 1 %}
   <nav aria-label="Páginas do dashboard" style="display:flex;justify-content:space-between;align-items:center;margin-top:var(--space-4);">
     {% if page > 1 %}
-    <a class="btn btn-ghost btn-sm" href="/?page={{ page - 1 }}&per_page={{ per_page }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Anterior</a>
+    <a class="btn btn-ghost btn-sm" href="/?page={{ page - 1 }}&per_page={{ per_page }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}">Anterior</a>
     {% else %}<span></span>{% endif %}
     <span>Página {{ page }} de {{ total_pages }}</span>
     {% if page < total_pages %}
-    <a class="btn btn-ghost btn-sm" href="/?page={{ page + 1 }}&per_page={{ per_page }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Próxima</a>
+    <a class="btn btn-ghost btn-sm" href="/?page={{ page + 1 }}&per_page={{ per_page }}{% if status_filter %}&status={{ status_filter }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}">Próxima</a>
     {% else %}<span></span>{% endif %}
   </nav>
   {% endif %}

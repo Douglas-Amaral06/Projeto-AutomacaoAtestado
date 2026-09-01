@@ -19,6 +19,7 @@ const backendUrlInput = document.getElementById("backendUrl");
 const saveBackendButton = document.getElementById("saveBackend");
 const pairingPageLink = document.getElementById("pairingPageLink");
 const logsPageLink = document.getElementById("logsPageLink");
+const openPresentationButton = document.getElementById("openPresentation");
 
 function updateBackendLinks(baseUrl) {
   pairingPageLink.href = `${baseUrl}/extensao`;
@@ -394,7 +395,25 @@ processLatestButton.addEventListener("click", async () => {
   }
 });
 
-// Envio manual
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const encoded = String(reader.result || "").split(",", 2)[1];
+      if (!encoded) reject(new Error("Não foi possível ler o documento selecionado"));
+      else resolve(encoded);
+    };
+    reader.onerror = () => reject(new Error("Não foi possível ler o documento selecionado"));
+    reader.readAsDataURL(file);
+  });
+}
+
+openPresentationButton.addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("simulator.html") });
+});
+
+// Simulação sem WhatsApp. O envio passa pelo mesmo service worker usado pela
+// captura real, preservando autenticação, trava de concorrência e metadados.
 sendButton.addEventListener("click", async () => {
   const file = fileInput.files[0];
   if (!file) {
@@ -403,48 +422,41 @@ sendButton.addEventListener("click", async () => {
   }
 
   sendButton.disabled = true;
-  await chrome.storage.local.set({ activeTask: { type: "manual-upload", startedAt: Date.now() } });
-  showStatus("Enviando arquivo...");
-
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("unidade", normalizedUnit(configUnitInput.value) || "UNI001");
-
+  showStatus("Simulando recebimento e extraindo documento...");
   try {
-    const { apiToken = "" } = await chrome.storage.local.get("apiToken");
+    const { apiToken = "", activeTask = null } = await chrome.storage.local.get(["apiToken", "activeTask"]);
     if (!apiToken) {
       throw new Error("Extensão não conectada. Faça o pareamento primeiro.");
     }
-
-    const response = await fetch(await backendUrl("/api/atestados"), {
-      method: "POST",
-      body: formData,
-      headers: { "X-API-Token": apiToken },
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.detail?.mensagem || result.detail || "Falha no processamento");
+    if (activeTask) {
+      throw new Error("Já existe outra tarefa em andamento. Aguarde a conclusão.");
     }
-
+    const simulationId = `simulacao-${Date.now()}-${crypto.randomUUID()}`;
+    const result = await chrome.runtime.sendMessage({
+      type: "UPLOAD_ATTACHMENT",
+      payload: {
+        arquivo: await readFileAsBase64(file),
+        nome_arquivo: file.name,
+        tipo_arquivo: file.type,
+        id_mensagem: simulationId,
+        id_conversa: "simulador-sem-whatsapp",
+        whatsapp_remetente: "+5511999990000",
+        data_recebimento: new Date().toISOString(),
+        unidade: normalizedUnit(configUnitInput.value) || "UNI001",
+        key: simulationId,
+      },
+    });
+    if (!result?.ok) {
+      throw new Error(result?.error || "Falha no processamento");
+    }
     if (result.status === "ignorado") {
       showStatus(`Arquivo ignorado: ${result.motivo || "não identificado como atestado"}`);
     } else if (result.status === "duplicado") {
       showStatus(`Arquivo já processado como atestado #${result.id}`);
     } else {
-      showStatus(result.aviso || `Atestado #${result.id} recebido e enviado para revisão.`);
+      const documentId = result.id_documento ? ` Identificador: ${result.id_documento}.` : "";
+      showStatus(`Documento #${result.id} recebido e extraído.${documentId}`);
     }
-
-    const delivery = {
-      id: result.id ?? null,
-      status: result.status,
-      unit: normalizedUnit(configUnitInput.value) || "UNI001",
-      sentAt: Date.now(),
-      warning: result.aviso || null,
-    };
-    await chrome.storage.local.set({ lastDelivery: delivery });
-    renderLastDelivery(delivery);
-
     fileInput.value = "";
   } catch (error) {
     showStatus(
@@ -452,7 +464,6 @@ sendButton.addEventListener("click", async () => {
       true
     );
   } finally {
-    await chrome.storage.local.remove("activeTask");
     sendButton.disabled = false;
   }
 });

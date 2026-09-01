@@ -40,6 +40,14 @@
         </a>
       </li>
       {% endif %}
+      <li class="sidebar-nav-item">
+        <a href="/extensao" class="sidebar-nav-link{% if request.url.path == '/extensao' %} active{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+          </svg>
+          Conectar extensão
+        </a>
+      </li>
       {% if user.perfil == 'admin' %}
       <div class="sidebar-section-title">Administração</div>
       <li class="sidebar-nav-item">
@@ -51,14 +59,6 @@
             <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
           </svg>
           Usuários
-        </a>
-      </li>
-      <li class="sidebar-nav-item">
-        <a href="/extensao" class="sidebar-nav-link{% if request.url.path == '/extensao' %} active{% endif %}">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-          </svg>
-          Conectar extensão
         </a>
       </li>
       <li class="sidebar-nav-item">

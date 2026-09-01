@@ -47,6 +47,7 @@
       <thead>
         <tr>
           <th>Nome</th>
+          <th>Operador vinculado</th>
           <th>Criado em</th>
           <th>Último uso</th>
           <th>Expira em</th>
@@ -59,6 +60,10 @@
         {% for token in tokens %}
         <tr>
           <td><strong>{{ token.nome }}</strong></td>
+          <td>
+            <strong>{{ token.operador_nome or 'Conta não identificada' }}</strong>
+            {% if token.operador_usuario %}<span class="text-xs text-muted" style="display:block;">{{ token.operador_usuario }}</span>{% endif %}
+          </td>
           <td>
             <span class="text-xs text-muted">
               {{ token.criado_em|date_br }}
@@ -96,7 +101,7 @@
         {% endfor %}
         {% else %}
         <tr>
-          <td colspan="6">
+          <td colspan="7">
             <div class="empty-state" style="padding: var(--space-8) var(--space-4);">
               <div class="empty-state-rule" aria-hidden="true"></div>
               <h3 class="empty-state-title">Nenhuma extensão conectada</h3>
