@@ -57,6 +57,16 @@ def test_comprovante_does_not_require_days_and_inss_is_prioritized():
     assert inss["label"] == "PING INSS"
 
 
+def test_document_domain_rejects_unapproved_third_type():
+    result = validation_summary({
+        "tipo_documento": "declaração de comparecimento",
+        "nome": "Pessoa", "cpf": "52998224725",
+        "data_atestado": "2026-08-14", "dias_afastamento": "",
+    }, today=date(2026, 8, 14))
+    assert not result["is_valid"]
+    assert "Selecione Atestado Médico ou Comprovante de Horas." in result["errors"]
+
+
 def test_validation_accepts_sqlite_row_from_dashboard_query():
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row

@@ -11,7 +11,15 @@ from app.gemini_service import (
     enhanced_image_bytes,
     extraction_contents,
     require_approved_processor,
+    parse_gemini_json,
 )
+
+
+def test_gemini_json_parser_accepts_structured_and_fenced_response():
+    structured = type("Response", (), {"parsed": {"is_atestado": True}, "text": ""})()
+    fenced = type("Response", (), {"parsed": None, "text": '```json\n{"is_atestado": true}\n```'})()
+    assert parse_gemini_json(structured) == {"is_atestado": True}
+    assert parse_gemini_json(fenced) == {"is_atestado": True}
 
 
 def test_lgpd_breaker_fails_closed_when_approval_is_missing(monkeypatch):
@@ -96,6 +104,36 @@ def test_gemini_client_receives_timeout_and_output_token_limit(tmp_path, monkeyp
     assert gemini_service.extract_document(document) == {}
     assert captured["config"].max_output_tokens == 512
     assert captured["http_options"].timeout == 25_000
+
+
+def test_invalid_gemini_json_is_retried_and_structured_response_is_preferred(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(database, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(database, "DB_PATH", tmp_path / "gemini-retry.db")
+    database.initialize_database()
+    document = tmp_path / "documento.pdf"
+    document.write_bytes(b"%PDF-ficticio\n%%EOF")
+    monkeypatch.setenv("GEMINI_API_KEY", "chave-ficticia")
+    monkeypatch.setenv("PROCESSOR_CONTRACT_APPROVED", "true")
+    monkeypatch.setenv("PROCESSOR_REGION", "us-central1")
+    monkeypatch.setenv("GEMINI_MIN_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("GEMINI_MAX_ATTEMPTS", "2")
+    calls = []
+
+    class Models:
+        def generate_content(self, **_kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                return type("Response", (), {"text": "{json-incompleto", "parsed": None})()
+            return type("Response", (), {"text": "não deve ser usado", "parsed": {"is_atestado": True}})()
+
+    class Client:
+        def __init__(self, **_kwargs):
+            self.models = Models()
+
+    monkeypatch.setattr(gemini_service.genai, "Client", Client)
+    assert gemini_service.extract_document(document) == {"is_atestado": True}
+    assert len(calls) == 2
 
 
 def test_schema_includes_professional_identification_and_visual_signals():

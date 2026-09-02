@@ -22,9 +22,18 @@ abaixo com 1 ou 2 analistas e registre qualquer falha na pagina **Logs**.
 - Botao parar: deve interromper a tarefa.
 - Limite 429 do Gemini: deve pausar e preservar o item na fila.
 - Revisao: aprovar e rejeitar, confirmando o nome do analista no historico.
+- Antes da aprovacao: confirmar que nada foi gravado no Volume.
+- Depois de **Aprovar e salvar**: confirmar documento e JSON no Volume com os dados revisados.
+- Depois de rejeitar: confirmar que nada foi enviado ao Volume.
 - Exportacao XLSX: conferir totais e campos aprovados.
 - Fechar o popup: o monitor deve continuar com a aba do WhatsApp aberta.
 - Revogar a extensao: novos uploads devem ser recusados ate novo pareamento.
+
+## Extracao manual oficial
+
+Enquanto o WhatsApp estiver indisponivel, acesse **Extracao Manual** no painel,
+selecione um PDF, JPG ou PNG e informe a unidade. O documento passa pelo Gemini
+e entra no mesmo painel oficial para revisao.
 
 ## Criterio para aprovar o piloto
 

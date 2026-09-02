@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import secrets
 import shutil
 import sqlite3
@@ -26,6 +27,7 @@ from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field
 
 from .database import BASE_DIR, UPLOAD_DIR, connect, initialize_database
+from .databricks_delivery import configured_delivery_service, prepare_processed_delivery, validate_prepared_delivery
 from .gemini_service import QuotaExceededError
 from .maintenance import BACKUP_DIR, apply_retention, create_backup, detect_orphan_files, prune_backups
 from .processing import QueueItemBusyError, add_log, process_queue_item, resume_pending_once, understandable_error
@@ -348,56 +350,77 @@ def toggle_user(user_id:int,request:Request,csrf_token:str=Form(...)):
 def extension_pairing_page(request: Request):
     user=web_user(request)
     if not user:return RedirectResponse("/login",303)
-    require_admin(user)
-    with connect() as connection: tokens=connection.execute("SELECT id,nome,ativo,criado_em,ultimo_uso,expira_em FROM tokens_servico ORDER BY id DESC").fetchall()
+    with connect() as connection:
+        query="""SELECT t.id,t.nome,t.ativo,t.criado_em,t.ultimo_uso,t.expira_em,
+                        u.nome operador_nome,u.usuario operador_usuario
+                 FROM tokens_servico t LEFT JOIN usuarios u ON u.id=t.criado_por"""
+        if user["perfil"] == "admin":
+            tokens=connection.execute(query+" ORDER BY t.id DESC").fetchall()
+        else:
+            tokens=connection.execute(query+" WHERE t.criado_por=? ORDER BY t.id DESC",(user["id"],)).fetchall()
     return templates.TemplateResponse(request=request,name="pairing.html",context={"user":user,"csrf":user["csrf_token"],"codigo":None,"tokens":tokens})
 
 
 @app.post("/extensao/gerar-codigo", response_class=HTMLResponse)
 def generate_pairing_code(request:Request,csrf_token:str=Form(...)):
-    admin=current_user(request);require_csrf(request,admin,csrf_token);require_admin(admin)
+    user=current_user(request);require_csrf(request,user,csrf_token)
     code=f"{secrets.randbelow(1_000_000):06d}"
     expires=utc_now()+timedelta(minutes=10)
     with connect() as connection:
-        connection.execute("DELETE FROM codigos_pareamento WHERE criado_por=? AND usado_em IS NULL",(admin["id"],))
-        connection.execute("INSERT INTO codigos_pareamento(codigo_hash,criado_por,expira_em) VALUES(?,?,?)",(hash_token(code),admin["id"],expires.isoformat()))
-        tokens=connection.execute("SELECT id,nome,ativo,criado_em,ultimo_uso,expira_em FROM tokens_servico ORDER BY id DESC").fetchall()
-    add_log("info","pareamento_criado",f"Codigo de pareamento criado pelo administrador #{admin['id']}")
-    return templates.TemplateResponse(request=request,name="pairing.html",context={"user":admin,"csrf":admin["csrf_token"],"codigo":code,"tokens":tokens})
+        connection.execute("DELETE FROM codigos_pareamento WHERE criado_por=? AND usado_em IS NULL",(user["id"],))
+        connection.execute("INSERT INTO codigos_pareamento(codigo_hash,criado_por,expira_em) VALUES(?,?,?)",(hash_token(code),user["id"],expires.isoformat()))
+        query="""SELECT t.id,t.nome,t.ativo,t.criado_em,t.ultimo_uso,t.expira_em,
+                        u.nome operador_nome,u.usuario operador_usuario
+                 FROM tokens_servico t LEFT JOIN usuarios u ON u.id=t.criado_por"""
+        if user["perfil"] == "admin":
+            tokens=connection.execute(query+" ORDER BY t.id DESC").fetchall()
+        else:
+            tokens=connection.execute(query+" WHERE t.criado_por=? ORDER BY t.id DESC",(user["id"],)).fetchall()
+    add_log("info","pareamento_criado",f"Codigo de pareamento criado pelo usuario #{user['id']}")
+    return templates.TemplateResponse(request=request,name="pairing.html",context={"user":user,"csrf":user["csrf_token"],"codigo":code,"tokens":tokens})
 
 
 @app.post("/extensao/tokens/{token_id}/revogar")
 def revoke_extension_token(token_id:int,request:Request,csrf_token:str=Form(...)):
-    admin=current_user(request);require_csrf(request,admin,csrf_token);require_admin(admin)
-    with connect() as connection:connection.execute("UPDATE tokens_servico SET ativo=0 WHERE id=?",(token_id,))
-    add_log("aviso","token_revogado",f"Token de extensao #{token_id} revogado por #{admin['id']}");return RedirectResponse("/extensao",303)
+    user=current_user(request);require_csrf(request,user,csrf_token)
+    with connect() as connection:
+        token=connection.execute("SELECT criado_por FROM tokens_servico WHERE id=?",(token_id,)).fetchone()
+        if not token: raise HTTPException(404,"Extensao inexistente")
+        if user["perfil"] != "admin" and token["criado_por"] != user["id"]:
+            raise HTTPException(403,"Operacao nao autorizada")
+        connection.execute("UPDATE tokens_servico SET ativo=0 WHERE id=?",(token_id,))
+    add_log("aviso","token_revogado",f"Token de extensao #{token_id} revogado por #{user['id']}");return RedirectResponse("/extensao",303)
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, status: str = "", page: int = 1, per_page: int = 50):
+def dashboard(request: Request, status: str = "", q: str = "", page: int = 1, per_page: int = 50):
     user = web_user(request)
     if not user: return RedirectResponse("/login", 303)
     page = max(1, page)
     per_page = min(100, max(10, per_page))
     offset = (page - 1) * per_page
+    search = re.sub(r"[^A-Za-z0-9_-]", "", q.strip())[:120]
+    conditions = []
+    parameters = []
+    if status:
+        conditions.append("a.status=?")
+        parameters.append(status)
+    if search:
+        conditions.append("instr(COALESCE(a.id_documento,''), ?) > 0")
+        parameters.append(search)
+    where = " WHERE " + " AND ".join(conditions) if conditions else ""
     with connect() as connection:
-        if status:
-            total = connection.execute(
-                "SELECT COUNT(*) FROM atestados WHERE status=?", (status,)
-            ).fetchone()[0]
-            rows = connection.execute(
-                """SELECT a.*,u.nome revisor_nome FROM atestados a
-                   LEFT JOIN usuarios u ON u.id=a.revisado_por
-                   WHERE a.status=? ORDER BY a.id DESC LIMIT ? OFFSET ?""",
-                (status, per_page, offset),
-            ).fetchall()
-        else:
-            total = connection.execute("SELECT COUNT(*) FROM atestados").fetchone()[0]
-            rows = connection.execute(
-                """SELECT a.*,u.nome revisor_nome FROM atestados a
-                   LEFT JOIN usuarios u ON u.id=a.revisado_por
-                   ORDER BY a.id DESC LIMIT ? OFFSET ?""", (per_page, offset)
-            ).fetchall()
+        total = connection.execute(
+            "SELECT COUNT(*) FROM atestados a" + where, parameters
+        ).fetchone()[0]
+        rows = connection.execute(
+            """SELECT a.*,u.nome revisor_nome,op.nome operador_envio_nome
+               FROM atestados a
+               LEFT JOIN usuarios u ON u.id=a.revisado_por
+               LEFT JOIN usuarios op ON op.id=a.operador_envio_id"""
+            + where + " ORDER BY a.id DESC LIMIT ? OFFSET ?",
+            (*parameters, per_page, offset),
+        ).fetchall()
         queue = connection.execute("SELECT status,COUNT(*) quantidade FROM fila_processamento GROUP BY status").fetchall()
         failed_items = connection.execute(
             """SELECT id,arquivo_original,status,tentativas,erro_amigavel,atualizado_em
@@ -420,6 +443,7 @@ def dashboard(request: Request, status: str = "", page: int = 1, per_page: int =
         "orphan_files": detect_orphan_files(), "permissions": permissions_for(user),
         "page": page, "per_page": per_page,
         "total_pages": max(1, (total + per_page - 1) // per_page), "status_filter": status,
+        "search_query": search,
         "user": user, "csrf": user["csrf_token"],
     })
 
@@ -429,7 +453,12 @@ def review_page(record_id: int, request: Request):
     user = web_user(request)
     if not user: return RedirectResponse("/login",303)
     require_permission(user, "review")
-    with connect() as connection: row=connection.execute("SELECT * FROM atestados WHERE id=?",(record_id,)).fetchone()
+    with connect() as connection:
+        row=connection.execute(
+            """SELECT a.*,u.nome operador_envio_nome FROM atestados a
+               LEFT JOIN usuarios u ON u.id=a.operador_envio_id WHERE a.id=?""",
+            (record_id,),
+        ).fetchone()
     if not row: raise HTTPException(404,"Registro inexistente")
     return templates.TemplateResponse(request=request,name="review.html",context=review_context(request, row, user))
 
@@ -480,6 +509,8 @@ def review_document(
         return templates.TemplateResponse(request=request, name="review.html", context=review_context(request, before, user, {**reviewed, **employee, "observacoes": observacoes, "motivo_rejeicao": motivo_rejeicao}, validation), status_code=422)
     days = int(dias_afastamento) if dias_afastamento.strip().isdigit() else None
     reviewed["dias_afastamento"] = days
+    delivery_id = before["id_documento"]
+    delivery_status = before["status_entrega"] or "aguardando_aprovacao"
     reservation = utc_now().isoformat()
     with connect() as connection:
         cursor = connection.execute(
@@ -490,10 +521,42 @@ def review_document(
     if cursor.rowcount != 1:
         raise HTTPException(409, "Este atestado foi alterado por outra pessoa. Reabra a tela antes de salvar.")
     try:
+        if acao == "aprovar":
+            delivery_service = configured_delivery_service()
+            if delivery_service is not None:
+                with connect() as connection:
+                    queue_item = connection.execute(
+                        "SELECT * FROM fila_processamento WHERE atestado_id=? ORDER BY id DESC LIMIT 1",
+                        (record_id,),
+                    ).fetchone()
+                document_path = UPLOAD_DIR / before["arquivo_salvo"]
+                if not queue_item or not document_path.is_file():
+                    raise HTTPException(409, "O documento original ou os metadados da fila não estão disponíveis para entrega.")
+                original = json.loads(before["dados_originais"] or "{}")
+                approved = {
+                    **original,
+                    **reviewed,
+                    "observacoes": observacoes.strip() or None,
+                    "is_atestado": True,
+                }
+                prepared = prepare_processed_delivery(queue_item, approved, document_path.read_bytes())
+                validate_prepared_delivery(prepared)
+                delivery_service.deliver(prepared)
+                delivery_id = prepared.payload["id_documento"]
+                delivery_status = (
+                    "entregue_volume"
+                    if os.getenv("DELIVERY_MODE", "disabled").strip().lower() == "databricks"
+                    else "simulado_local"
+                )
+            else:
+                delivery_status = "desabilitada"
         if before["arquivo_hash"]:
-            append_received_document(reviewed,employee,before["arquivo_hash"],enrichment_status,validation)
+            try:
+                append_received_document(reviewed,employee,before["arquivo_hash"],enrichment_status,validation)
+            except (RuntimeError, OSError):
+                add_log("aviso", "planilha_indisponivel", "A planilha auxiliar não pôde ser atualizada; a revisão principal continuou.", {"atestado_id": record_id})
         with connect() as connection:
-            cursor = connection.execute("""UPDATE atestados SET nome=?,cpf=?,cid=?,dias_afastamento=?,data_atestado=?,observacoes=?,status=?,motivo_rejeicao=?,revisado_por=?,revisado_em=?,matricula=?,telefone=?,email=?,empresa=?,tipo_documento=?,status_enriquecimento=?,crm=?,crm_uf=?,assinado=?,carimbado=? WHERE id=? AND revisado_em=?""",(nome.strip() or None,reviewed["cpf"],reviewed["cid"],days,data_atestado.strip() or None,observacoes.strip() or None,status,motivo_rejeicao.strip() or None,user["id"],reservation,employee.get("matricula") or None,employee.get("telefone") or None,employee.get("email") or None,employee.get("empresa") or None,reviewed["tipo_documento"],enrichment_status,reviewed["crm"],reviewed["crm_uf"],signed_value,stamped_value,record_id,reservation))
+            cursor = connection.execute("""UPDATE atestados SET nome=?,cpf=?,cid=?,dias_afastamento=?,data_atestado=?,observacoes=?,status=?,motivo_rejeicao=?,revisado_por=?,revisado_em=?,matricula=?,telefone=?,email=?,empresa=?,tipo_documento=?,status_enriquecimento=?,crm=?,crm_uf=?,assinado=?,carimbado=?,id_documento=?,status_entrega=? WHERE id=? AND revisado_em=?""",(nome.strip() or None,reviewed["cpf"],reviewed["cid"],days,data_atestado.strip() or None,observacoes.strip() or None,status,motivo_rejeicao.strip() or None,user["id"],reservation,employee.get("matricula") or None,employee.get("telefone") or None,employee.get("email") or None,employee.get("empresa") or None,reviewed["tipo_documento"],enrichment_status,reviewed["crm"],reviewed["crm_uf"],signed_value,stamped_value,delivery_id,delivery_status,record_id,reservation))
         if cursor.rowcount != 1:
             raise HTTPException(409, "A reserva de revisão expirou. Reabra a tela antes de salvar.")
     except Exception:
@@ -608,6 +671,14 @@ def receive_document(
     stored_path = None
     queue_id = None
     try:
+        token_id = getattr(request.state, "upload_token_id", None)
+        operator_id = getattr(request.state, "manual_operator_id", None)
+        if isinstance(token_id, int):
+            with connect() as connection:
+                token_owner = connection.execute(
+                    "SELECT criado_por FROM tokens_servico WHERE id=?", (token_id,)
+                ).fetchone()
+            operator_id = token_owner["criado_por"] if token_owner else None
         message_id = id_mensagem.strip()[:200] or None
         if message_id:
             with connect() as connection:
@@ -654,12 +725,14 @@ def receive_document(
         with connect() as connection:
             cursor=connection.execute("""INSERT INTO fila_processamento(
                 arquivo_hash,arquivo_original,arquivo_salvo,mime_type,status,
-                id_mensagem,id_conversa,whatsapp_remetente,data_recebimento,unidade
-            ) VALUES(?,?,?,?, 'aguardando_retentativa',?,?,?,?,?)""",(
+                id_mensagem,id_conversa,whatsapp_remetente,data_recebimento,unidade,
+                token_servico_id,operador_id
+            ) VALUES(?,?,?,?, 'aguardando_retentativa',?,?,?,?,?,?,?)""",(
                 digest,Path(file.filename or "documento").name[:255],stored_name,file.content_type,
                 message_id,id_conversa.strip()[:200] or None,
                 whatsapp_remetente.strip()[:80] or None,received_at or None,
                 unidade.strip().upper()[:30] or None,
+                token_id if isinstance(token_id,int) else None,operator_id,
             ))
             queue_id=cursor.lastrowid
     except sqlite3.IntegrityError:
@@ -686,6 +759,8 @@ def receive_document(
         return result
     except QuotaExceededError as error: raise HTTPException(429,detail={"codigo":"gemini_quota_exceeded","mensagem":"Limite temporário do serviço de leitura atingido.","aguarde_segundos":error.retry_after}) from error
     except Exception as error: raise HTTPException(503,detail={"codigo":"enfileirado","mensagem":"Falha temporaria; arquivo preservado para nova tentativa.","fila_id":queue_id}) from error
+
+
 
 
 @app.post("/fila/retomar")
@@ -723,6 +798,215 @@ def reprocess_queue_item(queue_id: int, request: Request, csrf_token: str = Form
     except Exception:
         pass
     return RedirectResponse("/", 303)
+
+    @app.post("/fila/{queue_id}/excluir")
+    def delete_failed_queue_item(
+    queue_id: int,
+    request: Request,
+    csrf_token: str = Form(...),
+):
+     user = current_user(request)
+    require_csrf(request, user, csrf_token)
+    require_permission(user, "delete")
+
+    with connect() as connection:
+        item = connection.execute(
+            """
+            SELECT
+                id,
+                arquivo_salvo,
+                arquivo_original,
+                arquivo_hash,
+                status,
+                atestado_id
+            FROM fila_processamento
+            WHERE id=?
+            """,
+            (queue_id,),
+        ).fetchone()
+
+        if not item:
+            raise HTTPException(
+                404,
+                "Item da fila inexistente",
+            )
+
+        # Evita excluir itens que já viraram um atestado válido.
+        if item["atestado_id"]:
+            raise HTTPException(
+                409,
+                "Esta extração já possui um atestado associado e não pode ser removida por aqui.",
+            )
+
+        allowed_statuses = {
+            "falhou",
+            "pausado_quota",
+            "aguardando_retentativa",
+        }
+
+        if item["status"] not in allowed_statuses:
+            raise HTTPException(
+                409,
+                "Somente extrações com falha podem ser excluídas.",
+            )
+
+        arquivo_salvo = item["arquivo_salvo"]
+        arquivo_hash = item["arquivo_hash"]
+        arquivo_original = item["arquivo_original"]
+
+        connection.execute(
+            "DELETE FROM fila_processamento WHERE id=?",
+            (queue_id,),
+        )
+
+        # Verifica se outro item da fila ainda usa o mesmo arquivo.
+        queue_file_uses = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM fila_processamento
+            WHERE arquivo_salvo=?
+            """,
+            (arquivo_salvo,),
+        ).fetchone()[0]
+
+        # Verifica se algum atestado usa o arquivo.
+        document_file_uses = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM atestados
+            WHERE arquivo_salvo=?
+            """,
+            (arquivo_salvo,),
+        ).fetchone()[0]
+
+    # Remove o arquivo físico somente quando ninguém mais o utiliza.
+    if (
+        arquivo_salvo
+        and queue_file_uses == 0
+        and document_file_uses == 0
+    ):
+        (UPLOAD_DIR / arquivo_salvo).unlink(
+            missing_ok=True
+        )
+
+    add_log(
+        "aviso",
+        "extracao_falha_excluida",
+        (
+            f"Fila #{queue_id} removida "
+            f"pelo usuario #{user['id']}"
+        ),
+        {
+            "arquivo": arquivo_original,
+            "arquivo_hash": arquivo_hash,
+        },
+    )
+
+    return RedirectResponse("/", 303)
+
+@app.post("/fila/{queue_id}/excluir")
+def delete_queue_item(
+    queue_id: int,
+    request: Request,
+    csrf_token: str = Form(...),
+):
+    user = current_user(request)
+
+    require_csrf(request, user, csrf_token)
+    require_permission(user, "delete")
+
+    with connect() as connection:
+        item = connection.execute(
+            """
+            SELECT
+                id,
+                arquivo_hash,
+                arquivo_original,
+                arquivo_salvo,
+                status,
+                atestado_id
+            FROM fila_processamento
+            WHERE id = ?
+            """,
+            (queue_id,),
+        ).fetchone()
+
+        if not item:
+            raise HTTPException(
+                status_code=404,
+                detail="Item da fila inexistente",
+            )
+
+        if item["atestado_id"]:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Esta extração já possui um atestado associado "
+                    "e não pode ser removida por esta ação."
+                ),
+            )
+
+        allowed_statuses = {
+            "falhou",
+            "pausado_quota",
+            "aguardando_retentativa",
+        }
+
+        if item["status"] not in allowed_statuses:
+            raise HTTPException(
+                status_code=409,
+                detail="Somente extrações com falha podem ser excluídas.",
+            )
+
+        arquivo_salvo = item["arquivo_salvo"]
+        arquivo_hash = item["arquivo_hash"]
+        arquivo_original = item["arquivo_original"]
+
+        connection.execute(
+            """
+            DELETE FROM fila_processamento
+            WHERE id = ?
+            """,
+            (queue_id,),
+        )
+
+        queue_file_uses = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM fila_processamento
+            WHERE arquivo_salvo = ?
+            """,
+            (arquivo_salvo,),
+        ).fetchone()[0]
+
+        document_file_uses = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM atestados
+            WHERE arquivo_salvo = ?
+            """,
+            (arquivo_salvo,),
+        ).fetchone()[0]
+
+    # Só remove fisicamente o arquivo se nenhum registro ainda o utiliza.
+    if (
+        arquivo_salvo
+        and queue_file_uses == 0
+        and document_file_uses == 0
+    ):
+        (UPLOAD_DIR / arquivo_salvo).unlink(missing_ok=True)
+
+    add_log(
+        "aviso",
+        "extracao_falha_excluida",
+        f"Fila #{queue_id} removida pelo usuario #{user['id']}",
+        {
+            "arquivo": arquivo_original,
+            "arquivo_hash": arquivo_hash,
+        },
+    )
+
+    return RedirectResponse("/", status_code=303)
 
 
 @app.get("/relatorios",response_class=HTMLResponse)

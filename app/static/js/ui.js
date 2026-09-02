@@ -7,6 +7,9 @@ document.addEventListener("DOMContentLoaded", function () {
   setupPopovers();
   setupDropdowns();
   setupToastContainer();
+
+  setupReviewBackButtons();
+  setupFailedExtractionDeletion();
 });
 
 /* ============================================================
@@ -342,6 +345,75 @@ function hideLoading(element) {
     const spinner = element.querySelector(".loading-spinner");
     if (spinner) spinner.remove();
   }
+}
+
+/* ============================================================
+   REVIEW - VOLTAR
+   ============================================================ */
+
+function setupReviewBackButtons() {
+  const buttons = document.querySelectorAll("[data-review-back]");
+
+  buttons.forEach((button) => {
+    button.addEventListener("click", function () {
+      const fallbackUrl =
+        button.dataset.fallbackUrl || "/";
+
+      const referrer = document.referrer;
+
+      if (referrer) {
+        try {
+          const previousUrl = new URL(referrer);
+
+          /*
+           * Só utiliza history.back() se a página anterior
+           * pertence ao próprio sistema.
+           *
+           * Evita mandar o usuário de volta para outro site.
+           */
+          if (previousUrl.origin === window.location.origin) {
+            window.history.back();
+            return;
+          }
+        } catch (error) {
+          console.warn(
+            "Não foi possível identificar a página anterior.",
+            error
+          );
+        }
+      }
+
+      window.location.href = fallbackUrl;
+    });
+  });
+}
+
+
+/* ============================================================
+   EXTRAÇÕES COM FALHA - EXCLUSÃO
+   ============================================================ */
+
+function setupFailedExtractionDeletion() {
+  const forms = document.querySelectorAll(
+    ".failed-extraction-delete-form"
+  );
+
+  forms.forEach((form) => {
+    form.addEventListener("submit", function (event) {
+      const fileName =
+        form.dataset.fileName || "este arquivo";
+
+      const message =
+        `Deseja realmente excluir a extração "${fileName}"?\n\n` +
+        "O item será removido da fila de processamento.";
+
+      const confirmed = window.confirm(message);
+
+      if (!confirmed) {
+        event.preventDefault();
+      }
+    });
+  });
 }
 
 /* ============================================================

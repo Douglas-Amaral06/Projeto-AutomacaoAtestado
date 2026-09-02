@@ -234,6 +234,26 @@ def extraction_contents(path: Path, mime_type: str) -> list:
     return contents
 
 
+def parse_gemini_json(response) -> dict:
+    """Aceita o JSON estruturado do SDK e tolera apenas envoltórios de texto."""
+    parsed = getattr(response, "parsed", None)
+    if isinstance(parsed, dict):
+        return parsed
+    text = str(getattr(response, "text", "") or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        result = json.loads(text[start:end + 1])
+    if not isinstance(result, dict):
+        raise json.JSONDecodeError("A resposta não é um objeto JSON", text, 0)
+    return result
+
+
 def extract_document(path: Path) -> dict:
     require_approved_processor()
     api_key = os.environ["GEMINI_API_KEY"]
@@ -244,11 +264,10 @@ def extract_document(path: Path) -> dict:
     }
     mime_type = mime_by_suffix.get(path.suffix.lower()) or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     timeout_ms = _positive_env_int("GEMINI_TIMEOUT_SECONDS", 60, maximum=180) * 1000
-    max_output_tokens = _positive_env_int("GEMINI_MAX_OUTPUT_TOKENS", 1024, maximum=4096)
+    max_output_tokens = _positive_env_int("GEMINI_MAX_OUTPUT_TOKENS", 2048, maximum=4096)
     max_attempts = _positive_env_int("GEMINI_MAX_ATTEMPTS", 2, maximum=3)
     client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=timeout_ms))
     contents = extraction_contents(path, mime_type)
-    response = None
     for attempt in range(max_attempts):
         reserve_gemini_budget(max_output_tokens)
         wait_for_gemini_slot()
@@ -263,7 +282,7 @@ def extract_document(path: Path) -> dict:
                     max_output_tokens=max_output_tokens,
                 ),
             )
-            break
+            return parse_gemini_json(response)
         except Exception as error:
             message = str(error)
             status_code = getattr(error, "status_code", None) or getattr(error, "code", None)
@@ -271,12 +290,10 @@ def extract_document(path: Path) -> dict:
                 retry_match = re.search(r"retryDelay[^0-9]+(\d+)s", message)
                 retry_after = int(retry_match.group(1)) if retry_match else None
                 raise QuotaExceededError("Limite da API Gemini atingido.", retry_after) from error
-            transient = isinstance(error, (TimeoutError, ConnectionError)) or status_code in {
+            transient = isinstance(error, (TimeoutError, ConnectionError, json.JSONDecodeError)) or status_code in {
                 408, 500, 502, 503, 504,
             }
             if not transient or attempt + 1 >= max_attempts:
                 raise
             time.sleep(2 ** attempt)
-    if response is None:
-        raise RuntimeError("O serviço de leitura não retornou resposta.")
-    return json.loads(response.text)
+    raise RuntimeError("O serviço de leitura não retornou um JSON válido.")

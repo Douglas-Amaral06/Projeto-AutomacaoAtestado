@@ -1,6 +1,4 @@
 // Elementos do DOM
-const fileInput = document.getElementById("file");
-const sendButton = document.getElementById("send");
 const statusBox = document.getElementById("status");
 const monitorInput = document.getElementById("monitor");
 const processLatestButton = document.getElementById("processLatest");
@@ -19,7 +17,8 @@ const backendUrlInput = document.getElementById("backendUrl");
 const saveBackendButton = document.getElementById("saveBackend");
 const pairingPageLink = document.getElementById("pairingPageLink");
 const logsPageLink = document.getElementById("logsPageLink");
-const openPresentationButton = document.getElementById("openPresentation");
+const manualFileInput = document.getElementById("manualFile");
+const manualExtractButton = document.getElementById("manualExtract");
 
 function updateBackendLinks(baseUrl) {
   pairingPageLink.href = `${baseUrl}/extensao`;
@@ -45,8 +44,8 @@ function applyTaskState(state) {
   const monitoring = Boolean(state.monitoringEnabled || state.monitoringAllEnabled);
   const processing = Boolean(state.activeTask);
   processLatestButton.disabled = monitoring || processing;
-  sendButton.disabled = monitoring || processing;
-  fileInput.disabled = monitoring || processing;
+  manualExtractButton.disabled = monitoring || processing;
+  manualFileInput.disabled = monitoring || processing;
   monitorInput.disabled = processing || Boolean(state.monitoringAllEnabled);
   monitorAllInput.disabled = processing || Boolean(state.monitoringEnabled);
   stopTaskButton.style.display = monitoring ? "block" : "none";
@@ -395,75 +394,57 @@ processLatestButton.addEventListener("click", async () => {
   }
 });
 
-function readFileAsBase64(file) {
+function readManualFileAsBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const encoded = String(reader.result || "").split(",", 2)[1];
-      if (!encoded) reject(new Error("Não foi possível ler o documento selecionado"));
-      else resolve(encoded);
+      if (encoded) resolve(encoded);
+      else reject(new Error("Não foi possível ler o documento selecionado."));
     };
-    reader.onerror = () => reject(new Error("Não foi possível ler o documento selecionado"));
+    reader.onerror = () => reject(new Error("Não foi possível ler o documento selecionado."));
     reader.readAsDataURL(file);
   });
 }
 
-openPresentationButton.addEventListener("click", () => {
-  chrome.tabs.create({ url: chrome.runtime.getURL("simulator.html") });
-});
-
-// Simulação sem WhatsApp. O envio passa pelo mesmo service worker usado pela
-// captura real, preservando autenticação, trava de concorrência e metadados.
-sendButton.addEventListener("click", async () => {
-  const file = fileInput.files[0];
+manualExtractButton.addEventListener("click", async () => {
+  const file = manualFileInput.files[0];
   if (!file) {
-    showStatus("Selecione um arquivo primeiro.", true);
+    showStatus("Selecione um PDF, JPG ou PNG para a extração manual.", true);
     return;
   }
-
-  sendButton.disabled = true;
-  showStatus("Simulando recebimento e extraindo documento...");
+  manualExtractButton.disabled = true;
+  showStatus("Enviando documento para extração real com o Gemini...");
   try {
     const { apiToken = "", activeTask = null } = await chrome.storage.local.get(["apiToken", "activeTask"]);
-    if (!apiToken) {
-      throw new Error("Extensão não conectada. Faça o pareamento primeiro.");
-    }
-    if (activeTask) {
-      throw new Error("Já existe outra tarefa em andamento. Aguarde a conclusão.");
-    }
-    const simulationId = `simulacao-${Date.now()}-${crypto.randomUUID()}`;
+    if (!apiToken) throw new Error("Extensão desconectada. Faça o pareamento primeiro.");
+    if (activeTask) throw new Error("Já existe outra tarefa em andamento.");
+    const manualId = `manual-${Date.now()}-${crypto.randomUUID()}`;
     const result = await chrome.runtime.sendMessage({
       type: "UPLOAD_ATTACHMENT",
       payload: {
-        arquivo: await readFileAsBase64(file),
+        arquivo: await readManualFileAsBase64(file),
         nome_arquivo: file.name,
         tipo_arquivo: file.type,
-        id_mensagem: simulationId,
-        id_conversa: "simulador-sem-whatsapp",
-        whatsapp_remetente: "+5511999990000",
+        id_mensagem: manualId,
+        id_conversa: "extracao-manual-extensao",
+        whatsapp_remetente: null,
         data_recebimento: new Date().toISOString(),
         unidade: normalizedUnit(configUnitInput.value) || "UNI001",
-        key: simulationId,
+        key: manualId,
       },
     });
-    if (!result?.ok) {
-      throw new Error(result?.error || "Falha no processamento");
-    }
+    if (!result?.ok) throw new Error(result?.error || "A extração não foi concluída.");
     if (result.status === "ignorado") {
-      showStatus(`Arquivo ignorado: ${result.motivo || "não identificado como atestado"}`);
-    } else if (result.status === "duplicado") {
-      showStatus(`Arquivo já processado como atestado #${result.id}`);
+      showStatus(`Documento não aceito: ${result.motivo || "tipo não reconhecido"}.`, true);
     } else {
-      const documentId = result.id_documento ? ` Identificador: ${result.id_documento}.` : "";
-      showStatus(`Documento #${result.id} recebido e extraído.${documentId}`);
+      const identifier = result.id_documento ? ` ID: ${result.id_documento}.` : "";
+      showStatus(`Extração concluída. Documento #${result.id} enviado ao painel oficial.${identifier}`);
+      manualFileInput.value = "";
     }
-    fileInput.value = "";
   } catch (error) {
-    showStatus(
-      `${error.message}. Verifique se o servidor está ativo.`,
-      true
-    );
+    showStatus(error.message, true);
   } finally {
-    sendButton.disabled = false;
+    manualExtractButton.disabled = false;
   }
 });

@@ -11,3 +11,6 @@ cryptography==50.0.0
 pytest==9.1.1
 Pillow==12.3.0
 tzdata==2025.2
+reportlab==4.4.4
+pypdf==6.0.0
+pdfplumber==0.11.7

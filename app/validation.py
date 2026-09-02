@@ -10,8 +10,6 @@ DOCUMENT_TYPES = {
     "comprovante de hora": "comprovante_horas",
     "comprovante de horas": "comprovante_horas",
     "comprovante_horas": "comprovante_horas",
-    "declaracao de comparecimento": "comprovante_horas",
-    "declaração de comparecimento": "comprovante_horas",
 }
 
 

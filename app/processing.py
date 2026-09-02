@@ -1,14 +1,10 @@
 import json
+import os
 import uuid
 from datetime import timedelta
 from pathlib import Path
 
 from .database import UPLOAD_DIR, connect
-from .databricks_delivery import (
-    configured_delivery_service,
-    prepare_processed_delivery,
-    validate_prepared_delivery,
-)
 from .gemini_service import QuotaExceededError, extract_document
 from .safe_errors import format_safe_error
 from .security import redact, utc_now
@@ -132,19 +128,24 @@ def process_queue_item(queue_id: int) -> dict:
             pass
         employee = employee or {}
         validation = validation_summary({**extracted, "status_enriquecimento": enrichment_status})
-        delivery_service = configured_delivery_service()
-        prepared = None
-        if delivery_service is not None:
-            prepared = prepare_processed_delivery(item, extracted, path.read_bytes())
-            validate_prepared_delivery(prepared)
         renew_queue_lease(queue_id, lock_token)
-        spreadsheet_result = append_received_document(extracted, employee, item["arquivo_hash"], enrichment_status, validation)
-
-        delivery_id = None
-        if delivery_service is not None and prepared is not None:
-            renew_queue_lease(queue_id, lock_token)
-            delivery_service.deliver(prepared)
-            delivery_id = prepared.payload["id_documento"]
+        spreadsheet_result = {"status": "desabilitada"}
+        if os.getenv("SPREADSHEET_PIPELINE_ENABLED", "true").strip().lower() == "true":
+            try:
+                spreadsheet_result = append_received_document(
+                    extracted, employee, item["arquivo_hash"], enrichment_status, validation
+                )
+            except (RuntimeError, OSError):
+                # A planilha é uma saída auxiliar. Caminho ausente, arquivo ocupado
+                # ou XLSX inválido não pode apagar uma extração válida nem impedir
+                # que o documento chegue ao painel e ao storage configurado.
+                spreadsheet_result = {"status": "indisponivel"}
+                add_log(
+                    "aviso",
+                    "planilha_indisponivel",
+                    "A planilha auxiliar não pôde ser atualizada; o processamento principal continuou.",
+                    {"fila_id": queue_id},
+                )
 
         renew_queue_lease(queue_id, lock_token)
         with connect() as connection:
@@ -157,8 +158,8 @@ def process_queue_item(queue_id: int) -> dict:
                 """INSERT INTO atestados(nome,cpf,cid,dias_afastamento,data_atestado,
                    arquivo_original,arquivo_salvo,observacoes,confianca,arquivo_hash,dados_originais,
                    matricula,telefone,email,empresa,tipo_documento,status_enriquecimento,
-                   crm,crm_uf,assinado,carimbado)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   crm,crm_uf,assinado,carimbado,operador_envio_id,id_documento,status_entrega)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (extracted.get("nome"), extracted.get("cpf"), extracted.get("cid"),
                  extracted.get("dias_afastamento"), extracted.get("data_atestado"),
                  item["arquivo_original"], item["arquivo_salvo"], extracted.get("observacoes"),
@@ -166,7 +167,7 @@ def process_queue_item(queue_id: int) -> dict:
                  employee.get("matricula"), employee.get("telefone"), employee.get("email"),
                  employee.get("empresa"), extracted.get("tipo_documento"), enrichment_status,
                  extracted.get("crm"), extracted.get("crm_uf"), extracted.get("assinado"),
-                 extracted.get("carimbado")),
+                 extracted.get("carimbado"), item["operador_id"],None,"aguardando_aprovacao"),
             )
             atestado_id = cursor.lastrowid
             connection.execute(
@@ -175,8 +176,15 @@ def process_queue_item(queue_id: int) -> dict:
                    WHERE id=? AND lock_token=?""",
                 (atestado_id, utc_now().isoformat(), queue_id, lock_token),
             )
-        add_log("info", "atestado_salvo", f"Atestado #{atestado_id} salvo para conferencia", {"enriquecimento": enrichment_status, "planilha": spreadsheet_result["status"], "entrega": "fake" if delivery_id else "desabilitada", "id_documento": delivery_id})
-        return {"id": atestado_id, "status": "pendente", "dados": extracted, "enriquecimento": enrichment_status, "id_documento": delivery_id}
+        add_log("info", "atestado_salvo", f"Atestado #{atestado_id} salvo para conferencia", {"enriquecimento": enrichment_status, "planilha": spreadsheet_result["status"], "entrega": "aguardando_aprovacao"})
+        return {
+            "id": atestado_id,
+            "status": "pendente",
+            "dados": extracted,
+            "enriquecimento": enrichment_status,
+            "id_documento": None,
+            "status_entrega": "aguardando_aprovacao",
+        }
     except QuotaExceededError as error:
         safe_message, safe_details = format_safe_error(error)
         friendly = f"{understandable_error(error)} Referência: {safe_details['correlation_id']}"

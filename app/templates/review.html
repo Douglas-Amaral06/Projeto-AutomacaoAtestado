@@ -1,14 +1,57 @@
 {% extends "base.html" %}
 
-{% block title %}Revisar Atestado #{{ item.id }}{% endblock %}
+{% block title %}
+Revisar Atestado #{{ item.id }}
+{% endblock %}
 
 {% block page_title %}
-<div class="breadcrumb">
-  <a href="/" class="breadcrumb-link">Dashboard</a>
-  <span class="breadcrumb-separator">/</span>
-  <span class="breadcrumb-item">Atestado #{{ item.id }}</span>
+
+<div class="review-header-navigation">
+
+  <button
+    type="button"
+    class="review-back-button"
+    id="review-back-button"
+    aria-label="Voltar para a página anterior"
+    title="Voltar"
+  >
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="19" y1="12" x2="5" y2="12"></line>
+
+      <polyline points="12 19 5 12 12 5"></polyline>
+    </svg>
+  </button>
+
+  <div>
+    <div class="breadcrumb">
+      <a href="/" class="breadcrumb-link">
+        Dashboard
+      </a>
+
+      <span class="breadcrumb-separator">
+        /
+      </span>
+
+      <span class="breadcrumb-item">
+        Atestado #{{ item.id }}
+      </span>
+    </div>
+
+    <div>
+      Revisar Atestado
+    </div>
+  </div>
+
 </div>
-Revisar Atestado
+
 {% endblock %}
 
 {% block content %}
@@ -33,7 +76,7 @@ Revisar Atestado
       <strong>Rastreabilidade do envio</strong>
       <p style="margin:var(--space-2) 0 0;font-size:var(--font-size-sm);">
         Operador: {{ item.operador_envio_nome or 'Não identificado' }}<br>
-        Entrega: {{ {'entregue_volume':'Confirmada no Volume','simulado_local':'Simulação local','desabilitada':'Não enviada'}.get(item.status_entrega, 'Sem confirmação') }}
+        Entrega: {{ {'aguardando_aprovacao':'Aguardando aprovação','entregue_volume':'Confirmada no Volume','simulado_local':'Simulação local','desabilitada':'Não enviada'}.get(item.status_entrega, 'Sem confirmação') }}
         {% if item.id_documento %}<br>ID Databricks: <code>{{ item.id_documento }}</code>{% endif %}
       </p>
     </div>
@@ -96,7 +139,8 @@ Revisar Atestado
           name="nome"
           value="{{ item.nome or '' }}"
           required
-          style="width: 100%; padding: var(--space-2); border: 1px solid {% if 'Nome é obrigatório.' in validation.errors %}var(--color-error){% else %}var(--color-border){% endif %}; border-radius: var(--radius-md); font-size: var(--font-size-base);"
+          class="{% if 'Nome é obrigatório.' in validation.errors %}review-field-error{% endif %}"
+          style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);"
         >
       </div>
 
@@ -156,10 +200,11 @@ Revisar Atestado
             value="{{ item.cpf or '' }}"
             required
             inputmode="numeric"
-            maxlength="14"
+            maxlength="11"
             autocomplete="off"
             aria-describedby="cpf-feedback"
-            style="width: 100%; padding: var(--space-2); border: 1px solid {% if 'CPF inválido ou ausente.' in validation.errors %}var(--color-error){% else %}var(--color-border){% endif %}; border-radius: var(--radius-md); font-size: var(--font-size-base);"
+            class="{% if 'CPF inválido ou ausente.' in validation.errors %}review-field-error{% endif %}"
+            style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);"
           >
           <small id="cpf-feedback" style="display: block; margin-top: 5px; color: var(--color-text-secondary);">Digite os 11 números do CPF.</small>
         </div>
@@ -200,7 +245,8 @@ Revisar Atestado
             value="{{ item.data_atestado or '' }}"
             required
             aria-describedby="date-feedback"
-            style="width: 100%; padding: var(--space-2); border: 1px solid {% if 'A data do documento não pode ser futura.' in validation.errors or 'Data do documento inválida.' in validation.errors %}var(--color-error){% else %}var(--color-border){% endif %}; border-radius: var(--radius-md); font-size: var(--font-size-base);"
+            class="{% if 'A data do documento não pode ser futura.' in validation.errors or 'Data do documento inválida.' in validation.errors %}review-field-error{% endif %}"
+            style="width: 100%; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-base);"
           >
           <small id="date-feedback" style="display: block; margin-top: 5px; color: var(--color-text-secondary);"></small>
         </div>

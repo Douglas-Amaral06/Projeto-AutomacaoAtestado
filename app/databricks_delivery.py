@@ -12,6 +12,7 @@ from pathlib import PurePosixPath
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .storage_client import DatabricksStorageClient, LocalFakeStorageClient, StorageClient
+from .validation import document_type as normalize_document_type
 
 
 SCHEMA_VERSION = "1.0"
@@ -28,6 +29,17 @@ SUPPORTED_EXTENSIONS = {
     "image/jpeg": "jpg",
     "image/png": "png",
 }
+
+
+def normalize_delivery_document_type(value) -> str | None:
+    """Converte rótulos legados antes de gravar um dos dois tipos oficiais."""
+    normalized = normalize_document_type(value)
+    if normalized:
+        return normalized
+    legacy = re.sub(r"\s+", " ", str(value or "").strip().casefold())
+    if legacy in {"declaracao de comparecimento", "declaração de comparecimento", "declaracao de horas", "declaração de horas"}:
+        return "comprovante_horas"
+    return None
 
 
 def sha256_bytes(content: bytes) -> str:
@@ -114,8 +126,14 @@ def prepare_delivery(
     document_relative_path = relative / f"{document_id}.{extension}"
     json_relative_path = relative / f"{document_id}.json"
 
+    raw_document_type = _nullable(documento.get("tipo_documento"))
+    normalized_document_type = normalize_delivery_document_type(raw_document_type)
+    official_document_type = {
+        "atestado_medico": "Atestado",
+        "comprovante_horas": "Comprovante de horas",
+    }.get(normalized_document_type, raw_document_type)
     document_values = {
-        "tipo_documento": _nullable(documento.get("tipo_documento")),
+        "tipo_documento": official_document_type,
         "cpf": _digits(documento.get("cpf")),
         "nome_paciente": _nullable(documento.get("nome_paciente")),
         "crm": _digits(documento.get("crm")),
@@ -168,10 +186,16 @@ def prepare_delivery(
 
 def prepare_processed_delivery(item, extracted: dict, document_content: bytes) -> PreparedDelivery:
     """Mapeia o item real da fila e o resultado da extração para o contrato."""
+    normalized_type = normalize_delivery_document_type(extracted.get("tipo_documento"))
     document_type = {
         "atestado_medico": "Atestado",
         "comprovante_horas": "Comprovante de horas",
-    }.get(extracted.get("tipo_documento"), _nullable(extracted.get("tipo_documento")))
+    }.get(normalized_type)
+    confidence = extracted.get("confianca")
+    if isinstance(confidence, str):
+        confidence = {"alta": 0.95, "media": 0.75, "média": 0.75, "baixa": 0.5}.get(
+            confidence.strip().casefold()
+        )
     received_at = item["data_recebimento"]
     if not received_at:
         created_at = datetime.fromisoformat(item["criado_em"])
@@ -192,7 +216,7 @@ def prepare_processed_delivery(item, extracted: dict, document_content: bytes) -
             "motor": "google-gemini",
             "versao": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             "data_extracao": datetime.now(tz=SAO_PAULO),
-            "confianca_geral": extracted.get("confianca") if isinstance(extracted.get("confianca"), (int, float)) else None,
+            "confianca_geral": confidence if isinstance(confidence, (int, float)) else None,
             "revisao_humana": None,
             "observacao": extracted.get("observacoes"),
         },
@@ -358,8 +382,12 @@ def validate_prepared_delivery(prepared: PreparedDelivery) -> None:
     if extracao["observacao"] is not None and not isinstance(extracao["observacao"], str):
         raise ContractValidationError("extracao.observacao deve ser texto ou null.")
 
-    if documento["tipo_documento"] is not None and not isinstance(documento["tipo_documento"], str):
-        raise ContractValidationError("documento.tipo_documento deve ser texto ou null.")
+    if documento["tipo_documento"] is not None and documento["tipo_documento"] not in {
+        "Atestado", "Comprovante de horas"
+    }:
+        raise ContractValidationError(
+            "documento.tipo_documento deve ser Atestado ou Comprovante de horas."
+        )
     if documento["cpf"] is not None and (not isinstance(documento["cpf"], str) or not re.fullmatch(r"\d{11}", documento["cpf"])):
         raise ContractValidationError("documento.cpf deve conter exatamente 11 dígitos ou ser null.")
     if documento["crm"] is not None and (not isinstance(documento["crm"], str) or not documento["crm"].isdigit()):
@@ -522,7 +550,7 @@ class LocalDeliverySimulator:
                 "observacao": "Metadados integralmente sintéticos para validação técnica.",
             },
             "documento": {
-                "tipo_documento": "atestado_medico",
+                "tipo_documento": "Atestado",
                 "cpf": f"9000000{sequence:04d}",
                 "nome_paciente": registro["nome"],
                 "crm": crm,

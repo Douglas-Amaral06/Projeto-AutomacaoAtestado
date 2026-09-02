@@ -52,3 +52,18 @@ def test_extension_requests_only_https_remote_hosts():
     manifest = json.loads((ROOT / "extension" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["optional_host_permissions"] == ["https://*/*"]
     assert "backend-config.js" in (ROOT / "extension" / "popup.html").read_text(encoding="utf-8")
+
+
+def test_extension_keeps_only_whatsapp_upload_flow():
+    popup_html = (ROOT / "extension" / "popup.html").read_text(encoding="utf-8")
+    popup_js = (ROOT / "extension" / "popup.js").read_text(encoding="utf-8")
+    background_js = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
+
+    assert "Simulação sem WhatsApp" not in popup_html
+    assert "Abrir tela de apresentação" not in popup_html
+    assert "Extração Manual" in popup_html
+    assert 'id_conversa: "extracao-manual-extensao"' in popup_js
+    assert 'type: "UPLOAD_ATTACHMENT"' in popup_js
+    assert 'formData.append("id_mensagem"' in background_js
+    assert 'formData.append("data_recebimento"' in background_js
+    assert "id_documento: result.id_documento" in background_js

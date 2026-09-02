@@ -80,6 +80,76 @@ def test_analyst_cannot_call_sensitive_admin_routes(tmp_path, monkeypatch):
     ).status_code == 403
 
 
+def test_analyst_pairing_token_identifies_upload_operator(tmp_path, monkeypatch):
+    _admin_id, _uploads = prepare_database(tmp_path, monkeypatch)
+    monkeypatch.setenv("EXTENSION_AUTH_REQUIRED", "true")
+    reset_rate_limits()
+    raw_session = "sessao-operador-extensao"
+    csrf = "csrf-operador-extensao"
+    own_token = "token-individual-analista"
+    other_token = "token-de-outro-analista"
+    with database.connect() as connection:
+        analyst_id = connection.execute(
+            "INSERT INTO usuarios(usuario,nome,senha_hash,totp_secret_encrypted,perfil) VALUES(?,?,?,?,?)",
+            ("analista.sp", "Analista São Paulo", "hash", "totp", "analista"),
+        ).lastrowid
+        other_id = connection.execute(
+            "INSERT INTO usuarios(usuario,nome,senha_hash,totp_secret_encrypted,perfil) VALUES(?,?,?,?,?)",
+            ("analista.outro", "Outro Analista", "hash", "totp", "analista"),
+        ).lastrowid
+        connection.execute(
+            "INSERT INTO sessoes(usuario_id,token_hash,csrf_token,user_agent_hash,expira_em) VALUES(?,?,?,?,?)",
+            (analyst_id, hash_token(raw_session), csrf, hash_token("ua:testclient"), (utc_now()+timedelta(hours=1)).isoformat()),
+        )
+        own_token_id = connection.execute(
+            "INSERT INTO tokens_servico(nome,token_hash,criado_por,expira_em) VALUES(?,?,?,?)",
+            ("Chrome SP", hash_token(own_token), analyst_id, (utc_now()+timedelta(days=1)).isoformat()),
+        ).lastrowid
+        other_token_id = connection.execute(
+            "INSERT INTO tokens_servico(nome,token_hash,criado_por,expira_em) VALUES(?,?,?,?)",
+            ("Chrome Outro", hash_token(other_token), other_id, (utc_now()+timedelta(days=1)).isoformat()),
+        ).lastrowid
+
+    client = TestClient(main.app, base_url="http://127.0.0.1")
+    client.cookies.set("rh_session", raw_session)
+    page = client.get("/extensao")
+    assert page.status_code == 200
+    assert "Chrome SP" in page.text
+    assert "Analista São Paulo" in page.text
+    assert "Chrome Outro" not in page.text
+
+    generated = client.post(
+        "/extensao/gerar-codigo", data={"csrf_token": csrf}, follow_redirects=False
+    )
+    assert generated.status_code == 200
+    with database.connect() as connection:
+        pairing_owner = connection.execute(
+            "SELECT criado_por FROM codigos_pareamento ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+    assert pairing_owner == analyst_id
+
+    assert client.post(
+        f"/extensao/tokens/{other_token_id}/revogar",
+        data={"csrf_token": csrf}, follow_redirects=False,
+    ).status_code == 403
+
+    monkeypatch.setattr(main, "process_queue_item", lambda queue_id: {"id": queue_id, "status": "pendente"})
+    uploaded = client.post(
+        "/api/atestados",
+        headers={"X-API-Token": own_token},
+        files={"file": ("atestado.jpg", jpeg_bytes(), "image/jpeg")},
+        data={"id_mensagem": "operador-message-id", "unidade": "UNI001"},
+    )
+    assert uploaded.status_code == 200
+    with database.connect() as connection:
+        queued = connection.execute(
+            "SELECT token_servico_id,operador_id FROM fila_processamento WHERE id_mensagem=?",
+            ("operador-message-id",),
+        ).fetchone()
+    assert queued["token_servico_id"] == own_token_id
+    assert queued["operador_id"] == analyst_id
+
+
 def test_dashboard_renders_server_side_ui_with_records(tmp_path, monkeypatch):
     user_id, _ = prepare_database(tmp_path, monkeypatch)
     raw_session = "sessao-dashboard"
@@ -137,6 +207,38 @@ def test_dashboard_paginates_large_result_sets(tmp_path, monkeypatch):
     assert "Página 1 de 2" in first.text
 
 
+def test_dashboard_searches_by_databricks_document_id(tmp_path, monkeypatch):
+    user_id, _uploads = prepare_database(tmp_path, monkeypatch)
+    raw_session = "sessao-busca-databricks"
+    document_id = "UNI001_20260828T091116_304b38fa"
+    with database.connect() as connection:
+        connection.execute(
+            """INSERT INTO atestados(
+                   arquivo_original,arquivo_salvo,status,nome,id_documento,status_entrega,operador_envio_id
+               ) VALUES(?,?,?,?,?,?,?)""",
+            ("teste.pdf", "teste.pdf", "pendente", "Pessoa Encontrada", document_id, "entregue_volume", user_id),
+        )
+        connection.execute(
+            "INSERT INTO atestados(arquivo_original,arquivo_salvo,status,nome) VALUES(?,?,?,?)",
+            ("outro.pdf", "outro.pdf", "pendente", "Pessoa Oculta"),
+        )
+        connection.execute(
+            "INSERT INTO sessoes(usuario_id,token_hash,csrf_token,user_agent_hash,expira_em) VALUES(?,?,?,?,?)",
+            (user_id, hash_token(raw_session), "csrf", hash_token("ua:testclient"), (utc_now()+timedelta(hours=1)).isoformat()),
+        )
+    client = TestClient(main.app, base_url="http://127.0.0.1")
+    client.cookies.set("rh_session", raw_session)
+
+    response = client.get("/?q=20260828T091116")
+
+    assert response.status_code == 200
+    assert "Pessoa Encontrada" in response.text
+    assert "Pessoa Oculta" not in response.text
+    assert document_id in response.text
+    assert "No Volume" in response.text
+    assert "Administrador" in response.text
+
+
 def test_upload_without_content_length_fails_before_body_parsing(tmp_path, monkeypatch):
     prepare_database(tmp_path, monkeypatch)
     request = Request({
@@ -152,8 +254,8 @@ def test_upload_without_content_length_fails_before_body_parsing(tmp_path, monke
     assert response.status_code == 411
 
 
-def test_real_queue_flow_delivers_document_and_json_to_fake_storage(tmp_path, monkeypatch):
-    _user_id, uploads = prepare_database(tmp_path, monkeypatch)
+def test_real_queue_flow_delivers_only_after_human_approval(tmp_path, monkeypatch):
+    user_id, uploads = prepare_database(tmp_path, monkeypatch)
     monkeypatch.setattr(processing, "UPLOAD_DIR", uploads)
     fake_volume = tmp_path / "fake-volume"
     monkeypatch.setenv("DELIVERY_MODE", "fake")
@@ -186,21 +288,48 @@ def test_real_queue_flow_delivers_document_and_json_to_fake_storage(tmp_path, mo
         queue_id = connection.execute(
             """INSERT INTO fila_processamento(
                 arquivo_hash,arquivo_original,arquivo_salvo,mime_type,status,
-                id_mensagem,id_conversa,whatsapp_remetente,data_recebimento
-            ) VALUES(?,?,?,?,?,?,?,?,?)""",
+                id_mensagem,id_conversa,whatsapp_remetente,data_recebimento,operador_id
+            ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (
                 "a" * 64, "atestado-original.pdf", saved.name, "application/pdf", "processando",
                 "messageId-e2e", "5511999990000@c.us", "+5511999990000",
-                "2026-08-19T11:44:03-03:00",
+                "2026-08-19T11:44:03-03:00", user_id,
             ),
         ).lastrowid
 
     result = processing.process_queue_item(queue_id)
+    assert result["status"] == "pendente"
+    assert result["id_documento"] is None
+    assert result["status_entrega"] == "aguardando_aprovacao"
+    assert list(fake_volume.rglob("*.*")) == []
+
+    raw_session, csrf = "sessao-aprovacao-volume", "csrf-aprovacao-volume"
+    with database.connect() as connection:
+        version = connection.execute(
+            "SELECT criado_em FROM atestados WHERE id=?", (result["id"],)
+        ).fetchone()[0]
+        connection.execute(
+            "INSERT INTO sessoes(usuario_id,token_hash,csrf_token,user_agent_hash,expira_em) VALUES(?,?,?,?,?)",
+            (user_id, hash_token(raw_session), csrf, hash_token("ua:testclient"), (utc_now()+timedelta(hours=1)).isoformat()),
+        )
+    monkeypatch.setattr(main, "find_employee", lambda _name, _cpf: (None, "BASE_NAO_CONFIGURADA"))
+    monkeypatch.setattr(main, "append_received_document", lambda *_args: {"status": "teste"})
+    client = TestClient(main.app, base_url="http://127.0.0.1")
+    client.cookies.set("rh_session", raw_session)
+    approval = client.post(
+        f"/atestados/{result['id']}/revisar",
+        data={
+            "acao": "aprovar", "csrf_token": csrf, "versao_registro": version,
+            "nome": "Pessoa Fictícia", "cpf": "52998224725", "cid": "N39.0",
+            "tipo_documento": "atestado_medico", "data_atestado": "2026-08-18",
+            "dias_afastamento": "2", "crm": "00000", "crm_uf": "SP",
+            "assinado": "true", "carimbado": "false",
+        },
+        follow_redirects=False,
+    )
+    assert approval.status_code == 303
     documents = list(fake_volume.rglob("*.pdf"))
     json_files = list(fake_volume.rglob("*.json"))
-
-    assert result["status"] == "pendente"
-    assert result["id_documento"]
     assert len(documents) == 1
     assert len(json_files) == 1
     payload = json.loads(json_files[0].read_text(encoding="utf-8"))
@@ -210,9 +339,14 @@ def test_real_queue_flow_delivers_document_and_json_to_fake_storage(tmp_path, mo
     assert payload["arquivo"]["sha256"] == hashlib.sha256(content).hexdigest()
     with database.connect() as connection:
         saved_record = connection.execute(
-            "SELECT crm,crm_uf,assinado,carimbado FROM atestados WHERE id=?", (result["id"],)
+            """SELECT crm,crm_uf,assinado,carimbado,operador_envio_id,
+                      id_documento,status_entrega FROM atestados WHERE id=?""", (result["id"],)
         ).fetchone()
-    assert dict(saved_record) == {"crm": "00000", "crm_uf": "SP", "assinado": 1, "carimbado": 0}
+    assert dict(saved_record) == {
+        "crm": "00000", "crm_uf": "SP", "assinado": 1,
+        "carimbado": 0, "operador_envio_id": user_id,
+        "id_documento": payload["id_documento"], "status_entrega": "simulado_local",
+    }
 
 
 def test_processing_failure_stores_only_correlation_data(tmp_path, monkeypatch):

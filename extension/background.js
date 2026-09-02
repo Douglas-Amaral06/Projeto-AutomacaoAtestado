@@ -159,7 +159,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message.type === "UPLOAD_ATTACHMENT") {
     uploadAttachment(message.payload)
-      .then((result) => sendResponse({ ok: true, id: result.id, status: result.status, motivo: result.motivo, tipo_documento: result.tipo_documento }))
+      .then((result) => sendResponse({
+        ok: true,
+        id: result.id,
+        status: result.status,
+        motivo: result.motivo,
+        tipo_documento: result.tipo_documento,
+        id_documento: result.id_documento || null,
+        status_entrega: result.status_entrega || null,
+        dados: result.dados || null,
+        aviso: result.aviso || null,
+      }))
       .catch(async (error) => {
         const waitText = error.retryAfter ? ` Tente novamente em cerca de ${error.retryAfter} segundos.` : "";
         const messageText = error.quotaExceeded

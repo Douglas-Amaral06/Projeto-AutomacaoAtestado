@@ -232,8 +232,57 @@ def test_preparador_do_fluxo_real_nao_inventa_campos_ausentes(monkeypatch):
     assert prepared.payload["documento"]["cid"] == "N390"
     assert prepared.payload["documento"]["cpf"] is None
     assert prepared.payload["documento"]["assinado"] is None
-    assert prepared.payload["extracao"]["confianca_geral"] is None
+    assert prepared.payload["extracao"]["confianca_geral"] == 0.5
     assert prepared.payload["origem"]["id_mensagem"] == "messageId-ficticio"
+
+
+@pytest.mark.parametrize(
+    ("source_type", "expected_type", "days"),
+    [
+        ("atestado_medico", "Atestado", 2),
+        ("atestado", "Atestado", 2),
+        ("comprovante_horas", "Comprovante de horas", None),
+        ("comprovante de horas", "Comprovante de horas", None),
+        ("declaração de comparecimento", "Comprovante de horas", None),
+    ],
+)
+def test_entrega_separada_dos_dois_tipos_oficiais(
+    tmp_path, monkeypatch, source_type, expected_type, days
+):
+    monkeypatch.setenv("DELIVERY_UNIT", "UNI001")
+    monkeypatch.setenv("DELIVERY_WHATSAPP_DESTINATION", "+5511988887777")
+    item = {
+        "arquivo_original": f"{source_type}.pdf",
+        "mime_type": "application/pdf",
+        "data_recebimento": "2026-08-19T15:22:10-03:00",
+        "criado_em": "2026-08-19 18:22:10",
+        "id_mensagem": f"messageId-{source_type}",
+        "id_conversa": "conversa-ficticia",
+        "whatsapp_remetente": "+5511999990000",
+    }
+    extracted = {
+        "tipo_documento": source_type,
+        "nome": "Pessoa Fictícia",
+        "cpf": "52998224725",
+        "crm": "00000",
+        "crm_uf": "SP",
+        "cid": None,
+        "dias_afastamento": days,
+        "data_atestado": "2026-08-18",
+        "observacoes": None,
+        "confianca": 0.95,
+        "assinado": True,
+        "carimbado": True,
+    }
+    prepared = prepare_processed_delivery(item, extracted, b"%PDF-documento-ficticio")
+    storage = LocalFakeStorageClient(tmp_path / source_type)
+
+    DeliveryService(storage).deliver(prepared)
+
+    stored = json.loads(storage.path_for(prepared.json_relative_path).read_text(encoding="utf-8"))
+    assert stored["documento"]["tipo_documento"] == expected_type
+    assert stored["documento"]["dias_afastamento"] == days
+    assert stored["origem"]["id_mensagem"] == f"messageId-{source_type}"
 
 
 def test_homologacao_fake_gera_par_verificado(tmp_path):

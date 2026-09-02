@@ -49,11 +49,15 @@ def initialize_database() -> None:
             "crm_uf": "TEXT",
             "assinado": "INTEGER",
             "carimbado": "INTEGER",
+            "operador_envio_id": "INTEGER",
+            "id_documento": "TEXT",
+            "status_entrega": "TEXT",
         }.items():
             if column not in columns:
                 connection.execute(f"ALTER TABLE atestados ADD COLUMN {column} {definition}")
         connection.execute("DROP INDEX IF EXISTS idx_atestados_arquivo_hash")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_atestados_arquivo_hash ON atestados(arquivo_hash)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_atestados_id_documento ON atestados(id_documento)")
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS usuarios (
@@ -146,6 +150,7 @@ def initialize_database() -> None:
             "id_mensagem": "TEXT", "id_conversa": "TEXT", "whatsapp_remetente": "TEXT",
             "data_recebimento": "TEXT", "unidade": "TEXT", "lock_token": "TEXT",
             "lock_expires_em": "TEXT", "erro_amigavel": "TEXT",
+            "token_servico_id": "INTEGER", "operador_id": "INTEGER",
         }
         for column, definition in queue_extra_columns.items():
             if column not in queue_columns:

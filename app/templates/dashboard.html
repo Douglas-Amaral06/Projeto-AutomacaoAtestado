@@ -63,11 +63,85 @@
           <td>{{ failure.mensagem }}</td>
           <td>{{ failure.tentativas }}</td>
           <td>
-            <form method="post" action="/fila/{{ failure.id }}/reprocessar">
-              <input type="hidden" name="csrf_token" value="{{ csrf }}">
-              <button type="submit" class="btn btn-secondary btn-sm">Reprocessar extração</button>
-            </form>
-          </td>
+  <div class="failed-extraction-actions">
+
+    <form
+      method="post"
+      action="/fila/{{ failure.id }}/reprocessar"
+    >
+      <input
+        type="hidden"
+        name="csrf_token"
+        value="{{ csrf }}"
+      >
+
+      <button
+        type="submit"
+        class="btn btn-secondary btn-sm"
+      >
+        Reprocessar extração
+      </button>
+    </form>
+
+    {% if 'delete' in permissions %}
+    <form
+      method="post"
+      action="/fila/{{ failure.id }}/excluir"
+      class="failed-extraction-delete-form"
+      data-file-name="{{ failure.arquivo_original }}"
+    >
+      <input
+        type="hidden"
+        name="csrf_token"
+        value="{{ csrf }}"
+      >
+
+      <button
+        type="submit"
+        class="btn btn-danger btn-sm btn-icon-only"
+        title="Excluir extração"
+        aria-label="Excluir extração {{ failure.arquivo_original }}"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="3 6 5 6 21 6"></polyline>
+
+          <path
+            d="M19 6l-1 14H6L5 6"
+          ></path>
+
+          <path
+            d="M8 6V4h8v2"
+          ></path>
+
+          <line
+            x1="10"
+            y1="11"
+            x2="10"
+            y2="17"
+          ></line>
+
+          <line
+            x1="14"
+            y1="11"
+            x2="14"
+            y2="17"
+          ></line>
+        </svg>
+      </button>
+    </form>
+
+    {% endif %}
+
+  </div>
+</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -228,3 +302,28 @@
   };
 </script>
 {% endblock %}
+
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const deleteForms = document.querySelectorAll(
+      ".failed-extraction-delete-form"
+    );
+
+    deleteForms.forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        const fileName =
+          form.dataset.fileName ||
+          "este arquivo";
+
+        const confirmed = window.confirm(
+          `Deseja realmente excluir a extração "${fileName}"?\n\n` +
+          "O item será removido da fila e não poderá ser reprocessado."
+        );
+
+        if (!confirmed) {
+          event.preventDefault();
+        }
+      });
+    });
+  });
+</script>

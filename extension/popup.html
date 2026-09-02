@@ -445,23 +445,19 @@
 
         <hr>
 
-        <!-- Simulador independente do WhatsApp -->
-        <div class="section-title">Simulação sem WhatsApp</div>
+        <div class="section-title">Extração Manual</div>
         <div class="config-item config-stack">
-          <strong>Recebimento fictício</strong>
+          <strong>Enviar documento diretamente</strong>
           <p class="hint">
-            Envia o documento pelo mesmo token, pela mesma fila e pela mesma extração
-            usados no fluxo real. Nenhuma conversa do WhatsApp é acessada.
+            Selecione um documento real. Ele será lido pelo Gemini e enviado ao
+            mesmo painel oficial usado pelo fluxo do WhatsApp.
           </p>
         </div>
         <div class="input-group">
-          <input id="file" type="file" accept="application/pdf,image/jpeg,image/png">
+          <input id="manualFile" type="file" accept="application/pdf,image/jpeg,image/png">
         </div>
-        <button id="send" class="btn-primary">
-          Simular recebimento e extrair
-        </button>
-        <button id="openPresentation" class="btn-secondary" type="button">
-          Abrir tela de apresentação
+        <button id="manualExtract" class="btn-primary" type="button">
+          Extrair e enviar ao painel
         </button>
 
         <!-- Status -->
