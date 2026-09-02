@@ -6,14 +6,36 @@ Revisar Atestado #{{ item.id }}
 
 {% block page_title %}
 
-<div class="review-header-navigation">
+<div>
+  <div class="breadcrumb">
+    <a href="/" class="breadcrumb-link">
+      Dashboard
+    </a>
 
+    <span class="breadcrumb-separator">
+      /
+    </span>
+
+    <span class="breadcrumb-item">
+      Atestado #{{ item.id }}
+    </span>
+  </div>
+
+  <div>
+    Revisar Atestado
+  </div>
+</div>
+
+{% endblock %}
+
+{% block content %}
+<div class="review-page-actions">
   <button
     type="button"
-    class="review-back-button"
-    id="review-back-button"
+    class="review-back-link"
+    data-review-back
+    data-fallback-url="/"
     aria-label="Voltar para a página anterior"
-    title="Voltar"
   >
     <svg
       viewBox="0 0 24 24"
@@ -25,36 +47,12 @@ Revisar Atestado #{{ item.id }}
       aria-hidden="true"
     >
       <line x1="19" y1="12" x2="5" y2="12"></line>
-
       <polyline points="12 19 5 12 12 5"></polyline>
     </svg>
+
+    <span>Voltar</span>
   </button>
-
-  <div>
-    <div class="breadcrumb">
-      <a href="/" class="breadcrumb-link">
-        Dashboard
-      </a>
-
-      <span class="breadcrumb-separator">
-        /
-      </span>
-
-      <span class="breadcrumb-item">
-        Atestado #{{ item.id }}
-      </span>
-    </div>
-
-    <div>
-      Revisar Atestado
-    </div>
-  </div>
-
 </div>
-
-{% endblock %}
-
-{% block content %}
 <div class="container-grid container-grid-full" style="grid-template-columns: 1fr 1fr; gap: var(--space-6);">
   <!-- Documento Original -->
   <div class="card">
