@@ -394,25 +394,114 @@ function setupReviewBackButtons() {
    ============================================================ */
 
 function setupFailedExtractionDeletion() {
-  const forms = document.querySelectorAll(
-    ".failed-extraction-delete-form"
+  const modal = document.getElementById(
+    "failed-extraction-delete-modal"
   );
 
-  forms.forEach((form) => {
-    form.addEventListener("submit", function (event) {
-      const fileName =
-        form.dataset.fileName || "este arquivo";
+  if (!modal) {
+    return;
+  }
 
-      const message =
-        `Deseja realmente excluir a extração "${fileName}"?\n\n` +
-        "O item será removido da fila de processamento.";
+  const triggers = document.querySelectorAll(
+    ".failed-extraction-delete-trigger"
+  );
 
-      const confirmed = window.confirm(message);
+  const form = document.getElementById(
+    "failed-extraction-delete-form"
+  );
 
-      if (!confirmed) {
-        event.preventDefault();
-      }
+  const fileNameElement = document.getElementById(
+    "failed-delete-file-name"
+  );
+
+  const cancelButton = document.getElementById(
+    "failed-extraction-delete-cancel"
+  );
+
+  const confirmButton = form?.querySelector(
+    'button[type="submit"]'
+  );
+
+  let lastTrigger = null;
+
+
+  function openDeleteModal(trigger) {
+    const action = trigger.dataset.deleteAction;
+    const fileName =
+      trigger.dataset.fileName || "este arquivo";
+
+    if (!action || !form) {
+      return;
+    }
+
+    lastTrigger = trigger;
+
+    form.action = action;
+
+    if (fileNameElement) {
+      fileNameElement.textContent = `"${fileName}"`;
+    }
+
+    modal.classList.add("open");
+    modal.setAttribute("aria-hidden", "false");
+
+    document.body.classList.add("modal-open");
+
+    window.requestAnimationFrame(() => {
+      cancelButton?.focus();
     });
+  }
+
+
+  function closeDeleteModal() {
+    modal.classList.remove("open");
+    modal.setAttribute("aria-hidden", "true");
+
+    document.body.classList.remove("modal-open");
+
+    if (form) {
+      form.action = "";
+    }
+
+    lastTrigger?.focus();
+    lastTrigger = null;
+  }
+
+
+  triggers.forEach((trigger) => {
+    trigger.addEventListener("click", function () {
+      openDeleteModal(trigger);
+    });
+  });
+
+
+  cancelButton?.addEventListener("click", function () {
+    closeDeleteModal();
+  });
+
+
+  modal.addEventListener("click", function (event) {
+    if (event.target === modal) {
+      closeDeleteModal();
+    }
+  });
+
+
+  document.addEventListener("keydown", function (event) {
+    if (
+      event.key === "Escape" &&
+      modal.classList.contains("open")
+    ) {
+      closeDeleteModal();
+    }
+  });
+
+
+  form?.addEventListener("submit", function () {
+    if (confirmButton) {
+      confirmButton.disabled = true;
+      confirmButton.textContent = "Excluindo...";
+    }
   });
 }
 

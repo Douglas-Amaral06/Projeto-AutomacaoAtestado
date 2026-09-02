@@ -84,24 +84,14 @@
     </form>
 
     {% if 'delete' in permissions %}
-    <form
-      method="post"
-      action="/fila/{{ failure.id }}/excluir"
-      class="failed-extraction-delete-form"
-      data-file-name="{{ failure.arquivo_original }}"
-    >
-      <input
-        type="hidden"
-        name="csrf_token"
-        value="{{ csrf }}"
-      >
-
       <button
-        type="submit"
-        class="btn btn-danger btn-sm btn-icon-only"
-        title="Excluir extração"
-        aria-label="Excluir extração {{ failure.arquivo_original }}"
-      >
+          type="button"
+          class="btn btn-danger btn-sm btn-icon-only failed-extraction-delete-trigger"
+          title="Excluir extração"
+          aria-label="Excluir extração {{ failure.arquivo_original }}"
+          data-delete-action="/fila/{{ failure.id }}/excluir"
+          data-file-name="{{ failure.arquivo_original }}"
+        >
         <svg
           viewBox="0 0 24 24"
           fill="none"
@@ -136,7 +126,6 @@
           ></line>
         </svg>
       </button>
-    </form>
 
     {% endif %}
 
@@ -289,41 +278,3 @@
 </div>
 
 {% endblock %}
-
-{% block extra_js %}
-<script>
-  // Stub: atualmente usando formatadores inline
-  // No futuro, pode ser expandido com buscas e filtros
-  const statusLabels = {
-    pendente: 'Pendente',
-    processando: 'Processando',
-    confirmado: 'Confirmado',
-    rejeitado: 'Rejeitado'
-  };
-</script>
-{% endblock %}
-
-<script>
-  document.addEventListener("DOMContentLoaded", function () {
-    const deleteForms = document.querySelectorAll(
-      ".failed-extraction-delete-form"
-    );
-
-    deleteForms.forEach(function (form) {
-      form.addEventListener("submit", function (event) {
-        const fileName =
-          form.dataset.fileName ||
-          "este arquivo";
-
-        const confirmed = window.confirm(
-          `Deseja realmente excluir a extração "${fileName}"?\n\n` +
-          "O item será removido da fila e não poderá ser reprocessado."
-        );
-
-        if (!confirmed) {
-          event.preventDefault();
-        }
-      });
-    });
-  });
-</script>

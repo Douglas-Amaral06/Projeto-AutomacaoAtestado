@@ -700,3 +700,164 @@
 .review-field-error {
   border-color: var(--color-error) !important;
 }
+
+/* ============================================================
+   CONFIRMAÇÃO - EXCLUSÃO DE EXTRAÇÃO
+   ============================================================ */
+
+.app-confirm-modal {
+  position: fixed;
+  inset: 0;
+
+  z-index: var(--z-modal);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: var(--space-5);
+
+  background: rgba(31, 35, 31, 0.42);
+
+  opacity: 0;
+  visibility: hidden;
+
+  transition:
+    opacity var(--transition-base),
+    visibility var(--transition-base);
+}
+
+
+.app-confirm-modal.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+
+.app-confirm-card {
+  width: min(440px, 100%);
+
+  background: var(--color-surface);
+
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+
+  box-shadow:
+    0 20px 55px rgba(27, 31, 27, 0.16);
+
+  padding: var(--space-6);
+
+  transform: translateY(8px) scale(0.985);
+
+  transition:
+    transform var(--transition-base);
+}
+
+
+.app-confirm-modal.open .app-confirm-card {
+  transform: translateY(0) scale(1);
+}
+
+
+.app-confirm-icon {
+  width: 42px;
+  height: 42px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  margin-bottom: var(--space-4);
+
+  border-radius: var(--radius-md);
+
+  background: var(--color-error-muted);
+  color: var(--color-error);
+}
+
+
+.app-confirm-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+
+.app-confirm-content {
+  margin-bottom: var(--space-6);
+}
+
+
+.app-confirm-title {
+  margin: 0 0 var(--space-3);
+
+  color: var(--color-text-primary);
+
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+
+.app-confirm-description {
+  margin: 0;
+
+  color: var(--color-text-primary);
+
+  font-size: var(--font-size-base);
+  line-height: 1.55;
+}
+
+
+.app-confirm-description strong {
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+
+.app-confirm-supporting-text {
+  margin:
+    var(--space-3)
+    0
+    0;
+
+  color: var(--color-text-secondary);
+
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+
+.app-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+
+.app-confirm-actions .btn {
+  min-width: 96px;
+}
+
+
+body.modal-open {
+  overflow: hidden;
+}
+
+
+@media (max-width: 520px) {
+  .app-confirm-modal {
+    padding: var(--space-4);
+  }
+
+  .app-confirm-card {
+    padding: var(--space-5);
+  }
+
+  .app-confirm-actions {
+    flex-direction: column-reverse;
+  }
+
+  .app-confirm-actions .btn {
+    width: 100%;
+  }
+}
