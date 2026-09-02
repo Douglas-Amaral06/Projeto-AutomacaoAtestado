@@ -139,6 +139,96 @@
 </div>
 {% endif %}
 
+{% if failed_items and 'delete' in permissions %}
+
+<div
+  id="failed-extraction-delete-modal"
+  class="app-confirm-modal"
+  aria-hidden="true"
+>
+  <div
+    class="app-confirm-card"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="failed-delete-title"
+    aria-describedby="failed-delete-description"
+  >
+
+    <div class="app-confirm-icon" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <polyline points="3 6 5 6 21 6"></polyline>
+        <path d="M19 6l-1 14H6L5 6"></path>
+        <path d="M8 6V4h8v2"></path>
+      </svg>
+    </div>
+
+    <div class="app-confirm-content">
+
+      <h2
+        id="failed-delete-title"
+        class="app-confirm-title"
+      >
+        Excluir extração?
+      </h2>
+
+      <p
+        id="failed-delete-description"
+        class="app-confirm-description"
+      >
+        Deseja realmente excluir a extração
+        <strong id="failed-delete-file-name"></strong>?
+      </p>
+
+      <p class="app-confirm-supporting-text">
+        O item será removido da fila de processamento.
+        Essa ação não poderá ser desfeita.
+      </p>
+
+    </div>
+
+    <form
+      method="post"
+      id="failed-extraction-delete-form"
+      action=""
+    >
+      <input
+        type="hidden"
+        name="csrf_token"
+        value="{{ csrf }}"
+      >
+
+      <div class="app-confirm-actions">
+
+        <button
+          type="button"
+          class="btn btn-secondary"
+          id="failed-extraction-delete-cancel"
+        >
+          Cancelar
+        </button>
+
+        <button
+          type="submit"
+          class="btn btn-danger"
+        >
+          Excluir
+        </button>
+
+      </div>
+    </form>
+
+  </div>
+</div>
+
+{% endif %}
+
 {% if orphan_files and user.perfil == 'admin' %}
 <div class="section">
   <div class="alert" style="background: var(--color-warning-muted); border-left: 4px solid var(--color-warning);">
