@@ -73,6 +73,7 @@
           <th>Nome</th>
           <th>Usuário</th>
           <th>Perfil</th>
+          <th>ID do operador</th>
           <th>Status</th>
           <th>Última atividade</th>
           <th></th>
@@ -88,6 +89,7 @@
               {{ item.perfil|upper }}
             </span>
           </td>
+          <td><code style="font-size: var(--font-size-xs);">{{ item.operador_public_id }}</code></td>
           <td>
             <span class="status-indicator {% if item.ativo %}connected{% else %}disconnected{% endif %}">
               {{ 'Ativo' if item.ativo else 'Inativo' }}

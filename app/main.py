@@ -26,7 +26,7 @@ from openpyxl import Workbook
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field
 
-from .database import BASE_DIR, UPLOAD_DIR, connect, initialize_database
+from .database import BASE_DIR, UPLOAD_DIR, connect, initialize_database, new_operator_public_id
 from .databricks_delivery import configured_delivery_service, prepare_processed_delivery, validate_prepared_delivery
 from .gemini_service import QuotaExceededError
 from .maintenance import BACKUP_DIR, apply_retention, create_backup, detect_orphan_files, prune_backups
@@ -313,7 +313,7 @@ def users_page(request: Request):
     user=web_user(request)
     if not user:return RedirectResponse("/login",303)
     require_admin(user)
-    with connect() as connection: rows=connection.execute("SELECT id,usuario,nome,perfil,ativo,criado_em,ultimo_login FROM usuarios ORDER BY nome").fetchall()
+    with connect() as connection: rows=connection.execute("SELECT id,usuario,nome,perfil,ativo,criado_em,ultimo_login,operador_public_id FROM usuarios ORDER BY nome").fetchall()
     return templates.TemplateResponse(request=request,name="users.html",context={"usuarios":rows,"user":user,"csrf":user["csrf_token"],"provisioning_uri":None})
 
 
@@ -323,11 +323,11 @@ def create_user(request:Request,csrf_token:str=Form(..., max_length=100),usuario
     if perfil not in {"admin","analista"}:raise HTTPException(400,"Perfil invalido")
     secret=secrets.token_urlsafe(32)
     try:
-        with connect() as connection: uid=connection.execute("INSERT INTO usuarios(usuario,nome,senha_hash,totp_secret_encrypted,perfil) VALUES(?,?,?,?,?)",(usuario.strip(),nome.strip(),hash_password(senha),encrypt_totp(secret),perfil)).lastrowid
+        with connect() as connection: uid=connection.execute("INSERT INTO usuarios(usuario,nome,senha_hash,totp_secret_encrypted,perfil,operador_public_id) VALUES(?,?,?,?,?,?)",(usuario.strip(),nome.strip(),hash_password(senha),encrypt_totp(secret),perfil,new_operator_public_id())).lastrowid
     except Exception as error:
         raise HTTPException(400,"Usuario existente ou dados invalidos") from error
     add_log("info","usuario_criado",f"Usuario #{uid} criado pelo administrador #{admin['id']}")
-    with connect() as connection: rows=connection.execute("SELECT id,usuario,nome,perfil,ativo,criado_em,ultimo_login FROM usuarios ORDER BY nome").fetchall()
+    with connect() as connection: rows=connection.execute("SELECT id,usuario,nome,perfil,ativo,criado_em,ultimo_login,operador_public_id FROM usuarios ORDER BY nome").fetchall()
     return templates.TemplateResponse(request=request,name="users.html",context={"usuarios":rows,"user":admin,"csrf":admin["csrf_token"],"provisioning_uri":None})
 
 
@@ -526,7 +526,10 @@ def review_document(
             if delivery_service is not None:
                 with connect() as connection:
                     queue_item = connection.execute(
-                        "SELECT * FROM fila_processamento WHERE atestado_id=? ORDER BY id DESC LIMIT 1",
+                        """SELECT q.*,u.operador_public_id
+                           FROM fila_processamento q
+                           LEFT JOIN usuarios u ON u.id=q.operador_id
+                           WHERE q.atestado_id=? ORDER BY q.id DESC LIMIT 1""",
                         (record_id,),
                     ).fetchone()
                 document_path = UPLOAD_DIR / before["arquivo_salvo"]
@@ -538,6 +541,11 @@ def review_document(
                     **reviewed,
                     "observacoes": observacoes.strip() or None,
                     "is_atestado": True,
+                    "revisao_humana": {
+                        "status": "aprovado",
+                        "operador_id": queue_item["operador_public_id"],
+                        "data_revisao": reservation,
+                    },
                 }
                 prepared = prepare_processed_delivery(queue_item, approved, document_path.read_bytes())
                 validate_prepared_delivery(prepared)

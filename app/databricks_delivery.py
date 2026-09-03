@@ -154,6 +154,7 @@ def prepare_delivery(
         "id_documento": document_id,
         "origem": {
             "canal": "whatsapp",
+            "operador_id": _nullable(origem.get("operador_id")),
             "id_mensagem": _nullable(origem.get("id_mensagem")),
             "id_conversa": _nullable(origem.get("id_conversa")),
             "whatsapp_remetente": _nullable(origem.get("whatsapp_remetente")),
@@ -207,6 +208,7 @@ def prepare_processed_delivery(item, extracted: dict, document_content: bytes) -
         unidade=(item["unidade"] if "unidade" in item.keys() else None) or os.getenv("DELIVERY_UNIT", "UNI001"),
         data_recebimento=received_at,
         origem={
+            "operador_id": item["operador_public_id"] if "operador_public_id" in item.keys() else None,
             "id_mensagem": item["id_mensagem"],
             "id_conversa": item["id_conversa"],
             "whatsapp_remetente": item["whatsapp_remetente"],
@@ -217,7 +219,7 @@ def prepare_processed_delivery(item, extracted: dict, document_content: bytes) -
             "versao": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
             "data_extracao": datetime.now(tz=SAO_PAULO),
             "confianca_geral": confidence if isinstance(confidence, (int, float)) else None,
-            "revisao_humana": None,
+            "revisao_humana": extracted.get("revisao_humana") if isinstance(extracted.get("revisao_humana"), dict) else None,
             "observacao": extracted.get("observacoes"),
         },
         documento={
@@ -311,7 +313,7 @@ def validate_prepared_delivery(prepared: PreparedDelivery) -> None:
     )
     origem = _require_keys(
         payload["origem"],
-        {"canal", "id_mensagem", "id_conversa", "whatsapp_remetente", "whatsapp_destinatario", "unidade", "data_recebimento"},
+        {"canal", "operador_id", "id_mensagem", "id_conversa", "whatsapp_remetente", "whatsapp_destinatario", "unidade", "data_recebimento"},
         "origem",
     )
     arquivo = _require_keys(
@@ -337,6 +339,11 @@ def validate_prepared_delivery(prepared: PreparedDelivery) -> None:
         raise ContractValidationError("id_documento possui formato inválido.")
     if origem["canal"] != "whatsapp":
         raise ContractValidationError("origem.canal deve ser whatsapp.")
+    if origem["operador_id"] is not None and (
+        not isinstance(origem["operador_id"], str)
+        or not re.fullmatch(r"opr_[0-9a-f]{32}", origem["operador_id"])
+    ):
+        raise ContractValidationError("origem.operador_id deve ser opaco ou null.")
     if not isinstance(origem["unidade"], str) or not re.fullmatch(r"[A-Z0-9_-]+", origem["unidade"]):
         raise ContractValidationError("origem.unidade possui formato inválido.")
     if not document_id.startswith(f"{origem['unidade']}_"):
@@ -524,6 +531,7 @@ class LocalDeliverySimulator:
             "id_documento": document_id,
             "origem": {
                 "canal": "whatsapp",
+                "operador_id": None,
                 "id_mensagem": f"wamid.SIMULADO.{registro['id_atestado']}",
                 "id_conversa": f"simulado-{registro['matricula']}@c.us",
                 "whatsapp_remetente": f"+551190000{sequence:04d}",

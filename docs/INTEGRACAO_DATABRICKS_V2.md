@@ -8,6 +8,14 @@ engenheiro; dúvidas contratuais permanecem abertas até aprovação formal.
 
 - Host informado: `https://dbc-32044e02-fb27.cloud.databricks.com`.
 - Raiz informada: `/Volumes/renapsi_prd/bronze_atestados/atestado`.
+- Identidade operacional: `origem.operador_id` usa um identificador opaco no
+  formato `opr_<uuid>`, resolvido no backend a partir do token de pareamento.
+  Reparear ou trocar de máquina não altera esse valor. Contas desligadas são
+  desativadas, não removidas, e o identificador nunca é reaproveitado.
+- Diretório de tradução: a relação entre `operador_id` e a pessoa permanece na
+  tabela `usuarios` do banco da aplicação. O dono funcional deve ser a área de
+  Frequência/RH; a custódia técnica deve ser atribuída nominalmente à equipe que
+  administra o backend. Enquanto não houver operador pareado, o JSON envia null.
 - Sequência: criar diretório, gravar documento, confirmar conteúdo e somente
   depois gravar o JSON.
 - Produção automatizada: OAuth M2M por uma Service Principal da aplicação.

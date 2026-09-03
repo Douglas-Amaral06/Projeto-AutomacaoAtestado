@@ -11,7 +11,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import load_dotenv
 
-from app.database import BASE_DIR, connect, initialize_database
+from app.database import BASE_DIR, connect, initialize_database, new_operator_public_id
 from app.security import encrypt_totp, hash_password
 
 
@@ -47,8 +47,8 @@ def main() -> None:
     totp_secret = secrets.token_urlsafe(32)
     with connect() as connection:
         connection.execute(
-            "INSERT INTO usuarios(usuario,nome,senha_hash,totp_secret_encrypted,perfil) VALUES(?,?,?,?, 'admin')",
-            (username, name, hash_password(password), encrypt_totp(totp_secret)),
+            "INSERT INTO usuarios(usuario,nome,senha_hash,totp_secret_encrypted,perfil,operador_public_id) VALUES(?,?,?,?, 'admin', ?)",
+            (username, name, hash_password(password), encrypt_totp(totp_secret), new_operator_public_id()),
         )
     print(f"USUARIO={username}")
     print(f"SENHA={password}")

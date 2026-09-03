@@ -34,10 +34,27 @@ def prepare_database(tmp_path, monkeypatch):
     database.initialize_database()
     with database.connect() as connection:
         user_id = connection.execute(
-            "INSERT INTO usuarios(usuario,nome,senha_hash,totp_secret_encrypted,perfil) VALUES(?,?,?,?,?)",
-            ("admin", "Administrador", "hash-teste", "totp-teste", "admin"),
+            "INSERT INTO usuarios(usuario,nome,senha_hash,totp_secret_encrypted,perfil,operador_public_id) VALUES(?,?,?,?,?,?)",
+            ("admin", "Administrador", "hash-teste", "totp-teste", "admin", database.new_operator_public_id()),
         ).lastrowid
     return user_id, uploads
+
+
+def test_operator_public_id_is_stable_unique_and_survives_deactivation(tmp_path, monkeypatch):
+    user_id, _uploads = prepare_database(tmp_path, monkeypatch)
+    with database.connect() as connection:
+        original = connection.execute(
+            "SELECT operador_public_id FROM usuarios WHERE id=?", (user_id,)
+        ).fetchone()[0]
+        connection.execute("UPDATE usuarios SET ativo=0 WHERE id=?", (user_id,))
+    database.initialize_database()
+    with database.connect() as connection:
+        after = connection.execute(
+            "SELECT operador_public_id FROM usuarios WHERE id=?", (user_id,)
+        ).fetchone()[0]
+    assert after == original
+    assert re.fullmatch(r"opr_[0-9a-f]{32}", original)
+    assert database.new_operator_public_id() != original
 
 
 def test_analyst_cannot_call_sensitive_admin_routes(tmp_path, monkeypatch):
@@ -336,6 +353,8 @@ def test_real_queue_flow_delivers_only_after_human_approval(tmp_path, monkeypatc
     assert documents[0].stem == json_files[0].stem == payload["id_documento"]
     assert documents[0].read_bytes() == content
     assert payload["origem"]["id_mensagem"] == "messageId-e2e"
+    assert re.fullmatch(r"opr_[0-9a-f]{32}", payload["origem"]["operador_id"])
+    assert payload["extracao"]["revisao_humana"]["operador_id"] == payload["origem"]["operador_id"]
     assert payload["arquivo"]["sha256"] == hashlib.sha256(content).hexdigest()
     with database.connect() as connection:
         saved_record = connection.execute(

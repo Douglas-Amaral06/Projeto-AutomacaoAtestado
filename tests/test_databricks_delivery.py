@@ -58,6 +58,7 @@ def test_json_respeita_contrato_e_integridade(tmp_path):
     assert payload["arquivo"]["caminho"].startswith("/Volumes/renapsi_prd/bronze_atestados/atestado/UNI001/2026/08/21/")
     assert E164_PATTERN.fullmatch(payload["origem"]["whatsapp_remetente"])
     assert E164_PATTERN.fullmatch(payload["origem"]["whatsapp_destinatario"])
+    assert payload["origem"]["operador_id"] is None
     received = datetime.fromisoformat(payload["origem"]["data_recebimento"])
     assert received.tzinfo is not None
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", payload["documento"]["data_emissao"])

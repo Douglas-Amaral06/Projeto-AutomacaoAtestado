@@ -1,4 +1,5 @@
 import sqlite3
+import uuid
 from pathlib import Path
 
 
@@ -6,6 +7,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 DB_PATH = DATA_DIR / "atestados.db"
+
+
+def new_operator_public_id() -> str:
+    """Gera identidade opaca, permanente e não derivada de dados pessoais."""
+    return f"opr_{uuid.uuid4().hex}"
 
 
 def initialize_database() -> None:
@@ -137,6 +143,19 @@ def initialize_database() -> None:
             """
         )
         user_columns = {row[1] for row in connection.execute("PRAGMA table_info(usuarios)").fetchall()}
+        if "operador_public_id" not in user_columns:
+            connection.execute("ALTER TABLE usuarios ADD COLUMN operador_public_id TEXT")
+        missing_operator_ids = connection.execute(
+            "SELECT id FROM usuarios WHERE operador_public_id IS NULL OR operador_public_id=''"
+        ).fetchall()
+        for row in missing_operator_ids:
+            connection.execute(
+                "UPDATE usuarios SET operador_public_id=? WHERE id=?",
+                (new_operator_public_id(), row[0]),
+            )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_operador_public_id ON usuarios(operador_public_id)"
+        )
         for column in ("ultimo_totp_login", "ultimo_totp_extensao"):
             if column not in user_columns:
                 connection.execute(f"ALTER TABLE usuarios ADD COLUMN {column} INTEGER")
